@@ -12,4 +12,12 @@ public extension NSAttributedString.Key {
     static let headingLevel = NSAttributedString.Key("MarkdownCore.headingLevel")
     /// Marks a run as being inside a fenced or indented code block.
     static let codeBlock = NSAttributedString.Key("MarkdownCore.codeBlock")
+    /// List nesting depth, 1 or greater.
+    ///
+    /// Used instead of `NSParagraphStyle.textLists` because setting `textLists`
+    /// makes TextKit 2 apply its own automatic list indentation and silently
+    /// discard `firstLineHeadIndent`, which puts every marker in the same
+    /// column regardless of depth. We insert our own markers, so we only need
+    /// to record the depth.
+    static let listDepth = NSAttributedString.Key("MarkdownCore.listDepth")
 }

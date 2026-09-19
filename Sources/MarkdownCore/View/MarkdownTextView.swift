@@ -102,9 +102,12 @@ public final class MarkdownTextView: NSTextView {
 
     // MARK: Quote bars and alert tints
 
-    public override func draw(_ dirtyRect: NSRect) {
-        drawQuoteDecorations(in: dirtyRect)
-        super.draw(dirtyRect)
+    /// Drawn in `drawBackground`, not `draw`. The text view fills its own
+    /// background during `draw`, which would paint straight over anything
+    /// drawn before calling super.
+    public override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawQuoteDecorations(in: rect)
     }
 
     /// Draws the left bar and tinted background for block quotes and alerts.
@@ -132,6 +135,18 @@ public final class MarkdownTextView: NSTextView {
                   range.length > 0, range.location < storage.length else { return true }
 
             let probe = min(range.location, storage.length - 1)
+            let columnWidth = self.textContainer?.size.width ?? rect.width
+
+            // Code blocks: one filled band per line fragment. Adjacent bands
+            // touch, so a multi-line block reads as a single continuous block
+            // without the gaps a per-run background attribute leaves behind.
+            if storage.attribute(.codeBlock, at: probe, effectiveRange: nil) != nil {
+                let band = NSRect(x: inset.width, y: rect.minY,
+                                  width: columnWidth, height: rect.height)
+                self.theme.codeBackground.setFill()
+                band.fill()
+            }
+
             guard let depth = storage.attribute(.quoteDepth, at: probe, effectiveRange: nil) as? Int,
                   depth > 0 else { return true }
 
@@ -142,7 +157,10 @@ public final class MarkdownTextView: NSTextView {
             for level in 1...depth {
                 let x = inset.width + CGFloat(level - 1) * 18 + 4
                 if kind != nil && level == depth {
-                    let fill = NSRect(x: x, y: rect.minY, width: rect.width - x, height: rect.height)
+                    // Span the whole reading column, not just the measured text
+                    // width, so the tint reads as a block rather than a ragged edge.
+                    let fill = NSRect(x: x, y: rect.minY,
+                                      width: inset.width + columnWidth - x, height: rect.height)
                     tint.withAlphaComponent(0.07).setFill()
                     fill.fill()
                 }

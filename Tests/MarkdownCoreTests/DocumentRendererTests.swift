@@ -146,10 +146,17 @@ struct DocumentRendererTests {
         #expect(text.contains("done") && text.contains("todo"))
     }
 
-    @Test func listsCarryTextListParagraphStyle() {
+    @Test func listsCarryADepthAttribute() {
         let doc = render("- item\n")
+        #expect(doc.attributedString.attribute(.listDepth, at: 0, effectiveRange: nil) as? Int == 1)
+    }
+
+    /// Setting textLists makes TextKit 2 override our indentation, so it must
+    /// stay unset however tempting it looks.
+    @Test func listsDoNotUseNSTextList() {
+        let doc = render("- a\n  - b\n")
         let style = doc.attributedString.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        #expect(style?.textLists.isEmpty == false)
+        #expect(style?.textLists.isEmpty == true)
     }
 
     // MARK: Quotes and alerts
@@ -321,5 +328,93 @@ struct NestedQuoteTests {
         #expect(doc.attributedString.attribute(.alertKind, at: at, effectiveRange: nil) as? String == "note")
         let outerAt = (doc.attributedString.string as NSString).range(of: "outer text").location
         #expect(doc.attributedString.attribute(.alertKind, at: outerAt, effectiveRange: nil) == nil)
+    }
+}
+
+@Suite("List nesting")
+struct ListNestingTests {
+    private func render(_ src: String) -> RenderedDocument {
+        DocumentRenderer(theme: .system).render(source: src)
+    }
+
+    private func headIndent(_ doc: RenderedDocument, forTextContaining needle: String) -> CGFloat {
+        let at = (doc.attributedString.string as NSString).range(of: needle).location
+        guard at != NSNotFound,
+              let style = doc.attributedString.attribute(.paragraphStyle, at: at,
+                                                         effectiveRange: nil) as? NSParagraphStyle
+        else { return -1 }
+        return style.headIndent
+    }
+
+    /// An outer list must not flatten the indentation a nested list already set.
+    @Test func eachNestingLevelIndentsFurtherThanTheLast() {
+        let doc = render("""
+        - level one
+          - level two
+            - level three
+        """)
+        let one = headIndent(doc, forTextContaining: "level one")
+        let two = headIndent(doc, forTextContaining: "level two")
+        let three = headIndent(doc, forTextContaining: "level three")
+        #expect(one > 0)
+        #expect(two > one)
+        #expect(three > two)
+    }
+
+    @Test func orderedListItemsShareTheSameIndent() {
+        let doc = render("1. first\n2. second\n3. third\n")
+        let a = headIndent(doc, forTextContaining: "first")
+        let b = headIndent(doc, forTextContaining: "second")
+        let c = headIndent(doc, forTextContaining: "third")
+        #expect(a == b)
+        #expect(b == c)
+    }
+
+    @Test func markerSitsLeftOfTheText() {
+        let doc = render("- item\n")
+        let at = (doc.attributedString.string as NSString).range(of: "item").location
+        let style = doc.attributedString.attribute(.paragraphStyle, at: at,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+        #expect((style?.firstLineHeadIndent ?? 0) < (style?.headIndent ?? 0))
+    }
+
+    @Test func listsInsideQuotesKeepBothIndents() {
+        let doc = render("> - quoted item\n")
+        let indent = headIndent(doc, forTextContaining: "quoted item")
+        let plain = headIndent(render("- plain item\n"), forTextContaining: "plain item")
+        #expect(indent > plain)
+    }
+}
+
+@Suite("Code block layout")
+struct CodeBlockLayoutTests {
+    private func render(_ src: String) -> RenderedDocument {
+        DocumentRenderer(theme: .system).render(source: src)
+    }
+
+    /// Each line of a code block is its own paragraph, so any paragraph
+    /// spacing would double-space the code.
+    @Test func codeLinesHaveNoParagraphSpacing() {
+        let doc = render("```swift\nlet a = 1\nlet b = 2\nlet c = 3\n```\n")
+        let at = (doc.attributedString.string as NSString).range(of: "let b").location
+        let style = doc.attributedString.attribute(.paragraphStyle, at: at,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.paragraphSpacing == 0)
+        #expect(style?.paragraphSpacingBefore == 0)
+    }
+
+    @Test func longCodeLinesWrapRatherThanOverflow() {
+        let doc = render("```swift\nlet x = \(String(repeating: "a", count: 300))\n```\n")
+        let at = (doc.attributedString.string as NSString).range(of: "let x").location
+        let style = doc.attributedString.attribute(.paragraphStyle, at: at,
+                                                   effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.lineBreakMode == .byCharWrapping)
+    }
+
+    @Test func blockKeepsItsPaddingInsideTheBackground() {
+        // Spacer lines carry the codeBlock attribute so the drawn band covers them.
+        let doc = render("```\nx\n```\n")
+        let first = doc.attributedString.attribute(.codeBlock, at: 0, effectiveRange: nil)
+        #expect(first as? Bool == true)
     }
 }

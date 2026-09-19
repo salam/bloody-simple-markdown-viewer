@@ -1,0 +1,63 @@
+name: BloodySimpleMarkdownViewer
+options:
+  bundleIdPrefix: ch.sala
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  MarkdownCore:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: 259HA4GJSD
+    ENABLE_HARDENED_RUNTIME: YES
+    COMBINE_HIDPI_IMAGES: YES
+
+targets:
+  # Target module name must differ from the swift-markdown package's
+  # `Markdown` module, or both emit Markdown.swiftmodule into Products.
+  MarkdownApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - Resources/Info.plist
+          - Markdown.entitlements
+    dependencies:
+      - package: MarkdownCore
+        product: MarkdownCore
+    entitlements:
+      path: App/Markdown.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: Markdown
+        PRODUCT_MODULE_NAME: BloodySimpleMarkdownViewer
+        PRODUCT_BUNDLE_IDENTIFIER: ch.sala.BloodySimpleMarkdownViewer
+        INFOPLIST_FILE: App/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Markdown.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "Apple Development"
+          CODE_SIGN_STYLE: Automatic
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          CODE_SIGN_STYLE: Manual
+
+schemes:
+  Markdown:
+    build:
+      targets:
+        MarkdownApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release

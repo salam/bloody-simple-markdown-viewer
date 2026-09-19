@@ -285,20 +285,51 @@ struct AttributedStringVisitor: MarkupVisitor {
         let highlighted = NSMutableAttributedString(
             attributedString: SyntaxHighlighter.highlight(code, language: codeBlock.language, theme: theme)
         )
-        let full = NSRange(location: 0, length: highlighted.length)
-        let style = paragraphStyle(spacingBefore: 6, spacingAfter: 12, indent: 12, lineHeightMultiple: 1.2)
-        highlighted.addAttributes([
-            .paragraphStyle: style,
-            .backgroundColor: theme.codeBackground,
+
+        // Every line inside the block is its own paragraph, so paragraph
+        // spacing must be zero or the code ends up double-spaced. Padding above
+        // and below comes from the spacer lines instead, which carry the
+        // codeBlock attribute so the drawn background covers them.
+        let style = paragraphStyle(spacingBefore: 0, spacingAfter: 0, indent: 12,
+                                   lineHeightMultiple: 1.15)
+        // Long lines wrap rather than run off the edge: a viewer must never
+        // hide code, and a horizontal scroller inside flowing text is worse.
+        style.lineBreakMode = .byCharWrapping
+
+        let spacerStyle = paragraphStyle(spacingBefore: 0, spacingAfter: 0, indent: 12,
+                                         lineHeightMultiple: 1.0)
+        let spacer = NSAttributedString(string: "\n", attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 4, weight: .regular),
+            .paragraphStyle: spacerStyle,
             .sourceOffset: sourceOffset(of: codeBlock),
             .codeBlock: true
-        ], range: full)
-        if quoteDepth > 0 {
-            highlighted.addAttribute(.quoteDepth, value: quoteDepth, range: full)
-        }
+        ])
 
-        let out = NSMutableAttributedString(attributedString: highlighted)
-        out.append(newline(after: codeBlock))
+        let out = NSMutableAttributedString()
+        out.append(spacer)
+        out.append(highlighted)
+        let bodyRange = NSRange(location: spacer.length, length: highlighted.length)
+        out.addAttributes([
+            .paragraphStyle: style,
+            .sourceOffset: sourceOffset(of: codeBlock),
+            .codeBlock: true
+        ], range: bodyRange)
+        out.append(NSAttributedString(string: "\n", attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 4, weight: .regular),
+            .paragraphStyle: spacerStyle,
+            .sourceOffset: sourceOffset(of: codeBlock),
+            .codeBlock: true
+        ]))
+
+        let full = NSRange(location: 0, length: out.length)
+        if quoteDepth > 0 {
+            out.addAttribute(.quoteDepth, value: quoteDepth, range: full)
+        }
+        out.append(NSAttributedString(string: "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 7),
+            .sourceOffset: sourceOffset(of: codeBlock),
+            .paragraphStyle: paragraphStyle(spacingAfter: 6)
+        ]))
         return out
     }
 
@@ -353,7 +384,8 @@ struct AttributedStringVisitor: MarkupVisitor {
 
         for child in list.children {
             guard let item = child as? ListItem else { continue }
-            let indent = CGFloat(listDepth) * 22 + 22
+            let markerIndent = CGFloat(listDepth) * 24
+            let textIndent = markerIndent + 26
 
             let marker: String
             if let checkbox = item.checkbox {
@@ -372,28 +404,34 @@ struct AttributedStringVisitor: MarkupVisitor {
             }
             listDepth = outerDepth
 
-            let style = paragraphStyle(spacingAfter: 4, indent: indent)
-            style.firstLineHeadIndent = indent - 22 + CGFloat(quoteDepth) * 18
-            style.headIndent = indent + CGFloat(quoteDepth) * 18
-            style.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
-            let textList = NSTextList(
-                markerFormat: ordered ? .decimal : .disc,
-                options: 0
-            )
-            style.textLists = Array(repeating: textList, count: listDepth + 1)
+            let style = paragraphStyle(spacingAfter: 4)
+            let quoteIndent = CGFloat(quoteDepth) * 18
+            style.firstLineHeadIndent = markerIndent + quoteIndent
+            style.headIndent = textIndent + quoteIndent
+            style.tabStops = [NSTextTab(textAlignment: .left, location: textIndent + quoteIndent)]
+            style.defaultTabInterval = textIndent
 
             let markerAttrs: [NSAttributedString.Key: Any] = [
                 .font: theme.bodyFont,
                 .foregroundColor: item.checkbox != nil ? theme.textColor : theme.secondaryTextColor,
                 .paragraphStyle: style,
+                .listDepth: listDepth + 1,
                 .sourceOffset: sourceOffset(of: item)
             ]
             let line = NSMutableAttributedString(string: marker + "\t", attributes: markerAttrs)
             line.append(itemBody)
-            // Apply the list paragraph style across the whole item, including
-            // wrapped continuation lines.
-            line.addAttribute(.paragraphStyle, value: style,
-                              range: NSRange(location: 0, length: line.length))
+            // Apply to this item's own paragraphs only. Content that already
+            // carries a list style belongs to a nested list and keeps its own
+            // deeper indentation.
+            let lineRange = NSRange(location: 0, length: line.length)
+            var plainRanges: [NSRange] = []
+            line.enumerateAttribute(.listDepth, in: lineRange) { value, subrange, _ in
+                if value == nil { plainRanges.append(subrange) }
+            }
+            for plain in plainRanges {
+                line.addAttribute(.paragraphStyle, value: style, range: plain)
+                line.addAttribute(.listDepth, value: listDepth + 1, range: plain)
+            }
             out.append(line)
         }
 
