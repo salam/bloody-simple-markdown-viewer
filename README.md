@@ -44,6 +44,7 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 - **Outline** of the document's headings, and **bookmarks** that survive the
   file being edited, moved or renamed.
 - **Source mode.** Toggle to the raw Markdown, edit it, and save.
+- **Finder previews.** Press space on a Markdown file and it renders.
 - **Print and export to PDF.** Paginated, with a running head and page numbers,
   as selectable text rather than a picture of text. Tables, code and formulas
   all come through.
@@ -115,11 +116,22 @@ code never touches it, and a debug assertion fires if anything does.
 The full design is in
 [`docs/superpowers/specs`](docs/superpowers/specs/2026-09-19-markdown-viewer-design.md).
 
-## Not yet
+## Quick Look
 
-A Quick Look extension, so Markdown previews render in Finder. Preview.app
-itself cannot be extended: its document types are a fixed list and it consumes
-no extension point.
+Pressing space on a Markdown file in Finder shows it rendered, not as raw
+source. The same extension serves the Finder preview pane, gallery view,
+Spotlight results and Open panels.
+
+macOS does not enable third-party Quick Look extensions automatically. If
+previews still show plain text, open **System Settings > General > Login Items
+& Extensions > Quick Look** and switch this one on.
+
+Preview.app itself cannot be extended. Its document types are a fixed list in
+its own Info.plist, it has no plug-ins directory, and it consumes no extension
+point. A Quick Look extension is the closest achievable thing, and it covers
+every system preview surface except Preview.app.
+
+## Not yet
 
 Mermaid covers flowchart, sequence, state, class, entity-relationship and pie
 diagrams, which is most of what these tools emit. Gantt charts, mindmaps and

@@ -49,12 +49,18 @@ install: release
 	@$(MAKE) reregister
 	@echo "Installed to $(INSTALL_TO)."
 	@echo "Open a .md file, then use Markdown > Make Default Markdown App."
+	@echo "Press space on a .md file in Finder for the rendered preview."
 
 # Launch Services caches bundles by path. A copy left in DerivedData or the
 # Trash can keep answering for the .md type, so re-register explicitly.
 reregister:
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
 		-f "$(INSTALL_TO)" 2>/dev/null || true
+	@# PlugInKit caches the extension by path too, so point it at the installed
+	@# copy and enable it; a build-folder copy would otherwise keep answering.
+	@pluginkit -r "$(PWD)/$(RELEASE_APP)/Contents/PlugIns/MarkdownQuickLook.appex" 2>/dev/null || true
+	@pluginkit -a "$(INSTALL_TO)/Contents/PlugIns/MarkdownQuickLook.appex" 2>/dev/null || true
+	@pluginkit -e use -i ch.sala.BloodySimpleMarkdownViewer.QuickLook 2>/dev/null || true
 
 uninstall:
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
