@@ -24,6 +24,12 @@ iOS. These are explicitly out of scope.
 | 10 MB document | Opens without beachball; scrolling need not be perfectly smooth |
 | Helper processes spawned | Zero |
 
+**Measured against these on 2026-09-19**, with the Showcase document open in the
+installed build: memory footprint 43 MB against a budget of 80 MB, zero helper
+processes, and a 16 MB file loaded and scrolled end to end in 130 ms at 95 MB
+peak. The large-document spike removed the need for chunked parsing entirely:
+TextKit 2's lazy viewport layout handles it unaided.
+
 ## 2. Key findings that shaped this design
 
 These were established by measurement and probe on macOS 15.7.3 / Xcode 26.3 / Swift 6.2.4,

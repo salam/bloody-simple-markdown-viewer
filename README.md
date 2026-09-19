@@ -10,8 +10,15 @@ it can edit the file it is showing.
 
 Most Markdown viewers on macOS are a web browser in a trench coat. A single
 `WKWebView` spawns three helper processes and costs around 138 MB before it has
-rendered anything. Measured on the same machine, this app's text stack renders
-the same document about 2.7 times faster in a single process.
+rendered anything.
+
+Measured on the same machine, macOS 15.7 on Apple Silicon:
+
+| | This app | A WKWebView |
+|---|---|---|
+| Memory footprint, document open | 43 MB | 138 MB idle, 184 MB with content |
+| Helper processes | 0 | 3 |
+| Time to first paint | about 2.7x faster | baseline |
 
 A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 
