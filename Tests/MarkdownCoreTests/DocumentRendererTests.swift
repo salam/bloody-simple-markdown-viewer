@@ -418,3 +418,76 @@ struct CodeBlockLayoutTests {
         #expect(first as? Bool == true)
     }
 }
+
+@MainActor
+@Suite("Table attachment sizing")
+struct TableAttachmentSizingTests {
+    /// TextKit asks for attachment bounds during layout, before the hosted view
+    /// exists. A zero answer collapses the table to an invisible speck, which
+    /// is exactly what happened before the size was measured up front.
+    @Test func reportsARealSizeBeforeItsViewIsLoaded() {
+        let model = TableModel(
+            header: ["Language", "Parser", "Speed"],
+            alignments: [.left, .left, .right],
+            rows: [["Swift", "native", "fast"], ["C", "cmark-gfm", "fastest"]]
+        )
+        let attachment = TableTextAttachment(model: model, theme: .system)
+        #expect(attachment.measuredSize.width > 100)
+        #expect(attachment.measuredSize.height > 40)
+        #expect(attachment.bounds.width == attachment.measuredSize.width)
+    }
+
+    @Test func widerTablesMeasureWider() {
+        let narrow = TableTextAttachment(
+            model: TableModel(header: ["a"], alignments: [.left], rows: [["1"]]),
+            theme: .system)
+        let wide = TableTextAttachment(
+            model: TableModel(header: ["a much longer header", "and another one here"],
+                              alignments: [.left, .left],
+                              rows: [["value one", "value two"]]),
+            theme: .system)
+        #expect(wide.measuredSize.width > narrow.measuredSize.width)
+    }
+
+    @Test func moreRowsMeasureTaller() {
+        let short = TableTextAttachment(
+            model: TableModel(header: ["a"], alignments: [.left], rows: [["1"]]),
+            theme: .system)
+        let tall = TableTextAttachment(
+            model: TableModel(header: ["a"], alignments: [.left],
+                              rows: [["1"], ["2"], ["3"], ["4"], ["5"]]),
+            theme: .system)
+        #expect(tall.measuredSize.height > short.measuredSize.height)
+    }
+
+    @Test func buildsAViewMatchingTheMeasuredSize() {
+        let attachment = TableTextAttachment(
+            model: TableModel(header: ["h1", "h2"], alignments: [.left, .left],
+                              rows: [["a", "b"]]),
+            theme: .system)
+        let view = attachment.makeContainerView()
+        #expect(view.frame.size == attachment.measuredSize)
+    }
+
+    @Test func veryWideTablesAreCappedRatherThanRunningOffThePage() {
+        let long = String(repeating: "wide ", count: 60)
+        let attachment = TableTextAttachment(
+            model: TableModel(header: [long, long, long],
+                              alignments: [.left, .left, .left],
+                              rows: [[long, long, long]]),
+            theme: .system)
+        #expect(attachment.measuredSize.width <= 680)
+        // Capping makes cells wrap, so the table gets taller instead.
+        #expect(attachment.measuredSize.height > 60)
+    }
+
+    /// Measuring must not touch AppKit views: rendering runs off the main
+    /// thread in tests and would throw if it did.
+    @Test func measuringIsPureGeometry() {
+        let geometry = TableGeometry(model: TableModel(
+            header: ["a", "b"], alignments: [.left, .right], rows: [["1", "2"], ["3", "4"]]))
+        #expect(geometry.columnWidths.count == 2)
+        #expect(geometry.rowHeights.count == 3)
+        #expect(geometry.size.height > 0)
+    }
+}

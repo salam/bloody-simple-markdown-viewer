@@ -1,13 +1,17 @@
 import AppKit
 
-/// A GFM table, rendered as a real `NSGridView` hosted inside the text.
+/// A GFM table, drawn directly rather than composed from controls.
 ///
 /// This does not use `NSTextTable`. Under TextKit 2 an `NSTextTableBlock`
-/// silently fails to lay out: the cells collapse into plain sequential
-/// paragraphs with no crash and no warning. Verified by probe. Hosting a view
-/// through `NSTextAttachmentViewProvider` does work and, critically, does not
-/// knock the text view back to TextKit 1.
-/// Not `Sendable`: it holds `NSAttributedString`. Rendering is main-thread work.
+/// silently fails to lay out: cells collapse into plain sequential paragraphs,
+/// with no crash and no warning. Verified by probe.
+///
+/// It also does not use `NSGridView`. Sizing has to happen before the hosted
+/// view exists, because TextKit asks for attachment bounds during layout and a
+/// zero answer collapses the table to an invisible speck. Building views to
+/// measure would also drag AppKit onto whatever thread is rendering. Geometry
+/// is therefore computed arithmetically from the text, and the view draws to
+/// exactly that geometry.
 public struct TableModel {
     public enum Alignment: Sendable { case left, center, right }
 
@@ -29,22 +33,121 @@ public struct TableModel {
         self.rows = rows.map { $0.map { NSAttributedString(string: $0, attributes: attrs) } }
     }
 
-    public var columnCount: Int {
-        max(header.count, rows.map(\.count).max() ?? 0)
+    public var columnCount: Int { max(header.count, rows.map(\.count).max() ?? 0) }
+
+    func alignment(forColumn column: Int) -> Alignment {
+        column < alignments.count ? alignments[column] : .left
+    }
+
+    /// All rows including the header, as a uniform grid with gaps padded.
+    func allRows() -> [[NSAttributedString]] {
+        let columns = columnCount
+        func pad(_ row: [NSAttributedString]) -> [NSAttributedString] {
+            (0..<columns).map { $0 < row.count ? row[$0] : NSAttributedString() }
+        }
+        return (header.isEmpty ? [] : [pad(header)]) + rows.map(pad)
+    }
+
+    var hasHeader: Bool { !header.isEmpty }
+}
+
+/// Column widths, row heights and overall size, derived from the text alone.
+public struct TableGeometry {
+    public static let cellPaddingX: CGFloat = 12
+    public static let cellPaddingY: CGFloat = 7
+    public static let outerInset: CGFloat = 1
+    static let maxTableWidth: CGFloat = 660
+    static let minColumnWidth: CGFloat = 44
+
+    public let columnWidths: [CGFloat]
+    public let rowHeights: [CGFloat]
+    public let size: CGSize
+
+    public init(model: TableModel) {
+        let rows = model.allRows()
+        let columns = model.columnCount
+        guard columns > 0, !rows.isEmpty else {
+            columnWidths = []
+            rowHeights = []
+            size = CGSize(width: 1, height: 1)
+            return
+        }
+
+        // Ideal width of each column, from the widest cell in it.
+        var widths = (0..<columns).map { column -> CGFloat in
+            rows.reduce(CGFloat(0)) { widest, row in
+                max(widest, ceil(row[column].size().width))
+            } + TableGeometry.cellPaddingX * 2
+        }
+
+        // Shrink proportionally if the natural width is unreasonable, letting
+        // the longest cells wrap rather than running off the page.
+        let natural = widths.reduce(0, +)
+        if natural > TableGeometry.maxTableWidth {
+            let scale = TableGeometry.maxTableWidth / natural
+            widths = widths.map { max(TableGeometry.minColumnWidth, floor($0 * scale)) }
+        }
+        columnWidths = widths
+
+        // Row heights, measured at the final column widths so wrapped text fits.
+        rowHeights = rows.map { row -> CGFloat in
+            var tallest: CGFloat = 0
+            for (column, cell) in row.enumerated() where column < widths.count {
+                let available = widths[column] - TableGeometry.cellPaddingX * 2
+                guard available > 0, cell.length > 0 else { continue }
+                let box = cell.boundingRect(
+                    with: CGSize(width: available, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
+                tallest = max(tallest, ceil(box.height))
+            }
+            return max(tallest, 17) + TableGeometry.cellPaddingY * 2
+        }
+
+        size = CGSize(
+            width: widths.reduce(0, +) + TableGeometry.outerInset * 2,
+            height: rowHeights.reduce(0, +) + TableGeometry.outerInset * 2
+        )
+    }
+
+    func originX(ofColumn column: Int) -> CGFloat {
+        TableGeometry.outerInset + columnWidths[0..<column].reduce(0, +)
+    }
+
+    func originY(ofRow row: Int) -> CGFloat {
+        TableGeometry.outerInset + rowHeights[0..<row].reduce(0, +)
     }
 }
 
 public final class TableTextAttachment: NSTextAttachment {
     public let model: TableModel
     public let theme: Theme
+    public let geometry: TableGeometry
+
+    public var measuredSize: CGSize { geometry.size }
 
     public init(model: TableModel, theme: Theme) {
         self.model = model
         self.theme = theme
+        self.geometry = TableGeometry(model: model)
         super.init(data: nil, ofType: nil)
-        // Reserve space until the hosted view reports its real size.
-        bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        bounds = CGRect(origin: .zero, size: geometry.size)
+        // Without this the layout system never asks for a view provider.
+        allowsTextAttachmentView = true
+        // An attachment with no image draws a generic document icon, which
+        // ends up painted on top of the hosted view. A fully transparent
+        // one-pixel image suppresses it at no meaningful cost.
+        image = Self.transparentPlaceholder
     }
+
+    private static let transparentPlaceholder: NSImage = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return image
+    }()
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -57,81 +160,24 @@ public final class TableTextAttachment: NSTextAttachment {
             textLayoutManager: textContainer?.textLayoutManager,
             location: location
         )
-        // Must be set in the initializer path, not later.
         provider.tracksTextAttachmentViewBounds = true
         return provider
     }
 
-    /// Builds the grid. Separated from the provider so it is testable without
-    /// a live text view.
-    public func makeGridView() -> NSGridView {
-        let columns = model.columnCount
-        let grid = NSGridView(numberOfColumns: max(columns, 1), rows: 0)
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 6
-        grid.columnSpacing = 18
-
-        func cellView(_ text: NSAttributedString, bold: Bool, column: Int) -> NSView {
-            let field = NSTextField(labelWithAttributedString: text)
-            field.lineBreakMode = .byWordWrapping
-            field.cell?.wraps = true
-            field.maximumNumberOfLines = 0
-            if bold {
-                let bolded = NSMutableAttributedString(attributedString: text)
-                bolded.addAttribute(.font,
-                                    value: NSFont.boldSystemFont(ofSize: theme.baseFontSize),
-                                    range: NSRange(location: 0, length: bolded.length))
-                field.attributedStringValue = bolded
-            }
-            let alignment = column < model.alignments.count ? model.alignments[column] : .left
-            field.alignment = switch alignment {
-            case .left: .left
-            case .center: .center
-            case .right: .right
-            }
-            return field
-        }
-
-        if !model.header.isEmpty {
-            let views = (0..<columns).map { col -> NSView in
-                cellView(col < model.header.count ? model.header[col] : NSAttributedString(),
-                         bold: true, column: col)
-            }
-            grid.addRow(with: views)
-        }
-
-        for row in model.rows {
-            let views = (0..<columns).map { col -> NSView in
-                cellView(col < row.count ? row[col] : NSAttributedString(), bold: false, column: col)
-            }
-            grid.addRow(with: views)
-        }
-        return grid
+    public func makeContainerView() -> NSView {
+        let view = TableView(model: model, theme: theme, geometry: geometry)
+        view.frame = CGRect(origin: .zero, size: geometry.size)
+        return view
     }
 }
 
-/// Hosts the grid, plus a header rule and a subtle border, inside the text flow.
 public final class TableViewProvider: NSTextAttachmentViewProvider {
     public override func loadView() {
         guard let attachment = textAttachment as? TableTextAttachment else {
             view = NSView()
             return
         }
-        let grid = attachment.makeGridView()
-        let container = TableContainerView(theme: attachment.theme,
-                                           hasHeader: !attachment.model.header.isEmpty)
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(grid)
-
-        let inset: CGFloat = 10
-        NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: inset),
-            grid.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -inset),
-            grid.topAnchor.constraint(equalTo: container.topAnchor, constant: inset),
-            grid.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -inset)
-        ])
-        container.grid = grid
-        view = container
+        view = attachment.makeContainerView()
     }
 
     public override func attachmentBounds(for attributes: [NSAttributedString.Key: Any],
@@ -139,46 +185,94 @@ public final class TableViewProvider: NSTextAttachmentViewProvider {
                                           textContainer: NSTextContainer?,
                                           proposedLineFragment: CGRect,
                                           position: CGPoint) -> CGRect {
-        guard let container = view else { return .zero }
-        container.layoutSubtreeIfNeeded()
-        let size = container.fittingSize
-        return CGRect(x: 0, y: 0,
-                      width: max(size.width, 1),
-                      height: max(size.height, 1))
+        guard let attachment = textAttachment as? TableTextAttachment else { return .zero }
+        return CGRect(origin: .zero, size: attachment.measuredSize)
     }
 }
 
-/// Draws the header rule and outer border behind the grid.
-final class TableContainerView: NSView {
+/// Draws the table to the geometry measured for it.
+public final class TableView: NSView {
+    private let model: TableModel
     private let theme: Theme
-    private let hasHeader: Bool
-    weak var grid: NSGridView?
+    private let geometry: TableGeometry
 
-    init(theme: Theme, hasHeader: Bool) {
+    init(model: TableModel, theme: Theme, geometry: TableGeometry) {
+        self.model = model
         self.theme = theme
-        self.hasHeader = hasHeader
-        super.init(frame: .zero)
+        self.geometry = geometry
+        super.init(frame: CGRect(origin: .zero, size: geometry.size))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var isFlipped: Bool { true }
+    public override var isFlipped: Bool { true }
+    public override var intrinsicContentSize: NSSize { geometry.size }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+    public override func draw(_ dirtyRect: NSRect) {
+        let rows = model.allRows()
+        guard !rows.isEmpty, !geometry.columnWidths.isEmpty else { return }
+
+        // Header band.
+        if model.hasHeader, let headerHeight = geometry.rowHeights.first {
+            let band = NSRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
+            theme.codeBackground.setFill()
+            band.fill()
+        }
+
+        // Row separators.
+        theme.ruleColor.setStroke()
+        for row in 1..<rows.count {
+            let y = geometry.originY(ofRow: row).rounded() + 0.5
+            let line = NSBezierPath()
+            line.move(to: NSPoint(x: 0, y: y))
+            line.line(to: NSPoint(x: bounds.width, y: y))
+            line.lineWidth = model.hasHeader && row == 1 ? 1.5 : 0.5
+            line.stroke()
+        }
+
+        // Cell text.
+        for (rowIndex, row) in rows.enumerated() {
+            let rowY = geometry.originY(ofRow: rowIndex)
+            let rowHeight = geometry.rowHeights[rowIndex]
+            for (column, cell) in row.enumerated() where column < geometry.columnWidths.count {
+                guard cell.length > 0 else { continue }
+                let columnX = geometry.originX(ofColumn: column)
+                let width = geometry.columnWidths[column] - TableGeometry.cellPaddingX * 2
+                guard width > 0 else { continue }
+
+                let styled = NSMutableAttributedString(attributedString: cell)
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.alignment = switch model.alignment(forColumn: column) {
+                case .left: .left
+                case .center: .center
+                case .right: .right
+                }
+                paragraph.lineBreakMode = .byWordWrapping
+                let full = NSRange(location: 0, length: styled.length)
+                styled.addAttribute(.paragraphStyle, value: paragraph, range: full)
+                if model.hasHeader && rowIndex == 0 {
+                    styled.addAttribute(.font,
+                                        value: NSFont.boldSystemFont(ofSize: theme.baseFontSize),
+                                        range: full)
+                }
+
+                let box = styled.boundingRect(
+                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
+                let textY = rowY + (rowHeight - box.height) / 2
+                styled.draw(with: CGRect(x: columnX + TableGeometry.cellPaddingX,
+                                         y: textY,
+                                         width: width,
+                                         height: box.height),
+                            options: [.usesLineFragmentOrigin, .usesFontLeading])
+            }
+        }
+
+        // Outer border last, so it sits over the bands.
+        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
         theme.ruleColor.setStroke()
         border.lineWidth = 1
         border.stroke()
-
-        guard hasHeader, let grid, grid.numberOfRows > 1 else { return }
-        let headerCell = grid.cell(atColumnIndex: 0, rowIndex: 0)
-        let headerFrame = headerCell.contentView?.frame ?? .zero
-        let y = (headerFrame.maxY + grid.frame.minY + grid.rowSpacing / 2).rounded()
-        let rule = NSBezierPath()
-        rule.move(to: NSPoint(x: 1, y: y))
-        rule.line(to: NSPoint(x: bounds.width - 1, y: y))
-        rule.lineWidth = 1
-        theme.ruleColor.setStroke()
-        rule.stroke()
     }
 }

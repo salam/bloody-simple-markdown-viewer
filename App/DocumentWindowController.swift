@@ -13,7 +13,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate, NSTe
             defer: false
         )
         window.titlebarAppearsTransparent = false
-        window.tabbingMode = .preferred
+        // Disallowed by default, so macOS never folds a separately-opened file
+        // into an existing window. Batches are tabbed explicitly by the
+        // document controller, which flips this just long enough to do it.
+        window.tabbingMode = .disallowed
         // A shared identifier is what lets windows be merged into one tab group.
         window.tabbingIdentifier = "ch.sala.BloodySimpleMarkdownViewer.document"
         window.setFrameAutosaveName("MarkdownDocumentWindow")

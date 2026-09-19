@@ -49,7 +49,15 @@ final class DocumentController: NSDocumentController {
             }
 
             if let host, host !== window {
+                // Windows are created with tabbing disallowed so the system
+                // never groups separate opens. Enable it for the moment it
+                // takes to join this batch, then put it back.
+                let hostMode = host.tabbingMode
+                host.tabbingMode = .preferred
+                window.tabbingMode = .preferred
                 host.addTabbedWindow(window, ordered: .above)
+                host.tabbingMode = hostMode
+                window.tabbingMode = .disallowed
             }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: false)
