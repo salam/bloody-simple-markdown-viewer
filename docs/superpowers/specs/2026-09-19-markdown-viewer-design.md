@@ -225,6 +225,20 @@ sessions prove costly in practice.
 Known ambiguity, accepted: Launch Services can coalesce genuinely separate opens that
 arrive during a cold launch into one batch. Array size is the only available signal.
 
+Drag and drop follows the same rule, that where a file lands decides what it joins:
+
+| Gesture | Result |
+|---|---|
+| Drop onto an open document window | Opens as a new tab in *that* window |
+| Drop onto the Dock icon | Opens a new window; several files dropped together become tabs in that one new window |
+| Drop onto the Dock icon while no window is open | Opens a new window |
+
+The window drop is served by an `NSView` drag destination on the document view accepting
+`.fileURL`, filtered to the content types the app claims, which asks the document
+controller to open each URL as a tab of the receiving window. The Dock drop arrives
+through the ordinary `application(_:open:)` path and is indistinguishable from a Finder
+open, which is why it produces a new window rather than joining an existing one.
+
 ### 5.2 Editing
 
 `NSDocument`-based. Source mode is editable, with undo from the text view, dirty state in
