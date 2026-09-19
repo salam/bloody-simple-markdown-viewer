@@ -33,6 +33,7 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 - **Source mode.** Toggle to the raw Markdown, edit it, and save.
 - **Everything in the title bar.** Tools and tabs share the row with the window
   buttons, so the document gets the whole window.
+- **Light and dark**, following the system, with no second theme to maintain.
 
 ## Requirements
 
@@ -92,15 +93,27 @@ code never touches it, and a debug assertion fires if anything does.
 The full design is in
 [`docs/superpowers/specs`](docs/superpowers/specs/2026-09-19-markdown-viewer-design.md).
 
+## Not yet
+
+LaTeX math and Mermaid diagrams currently render as styled code blocks showing
+their source, so nothing in your file is lost. Both will be rendered natively,
+with no web view: [SwaTex](https://github.com/PhraseHQ/SwaTex) passes 129 of
+130 common KaTeX commands at roughly 0.1 ms per formula, and
+[swift-mermaid](https://github.com/Australware/swift-mermaid) covers flowchart,
+sequence, state, class, ER and pie diagrams, which is most of what these tools
+produce. Diagram types it cannot draw will keep falling back to their source.
+
+A Quick Look extension is also planned, so Markdown previews render in Finder.
+Preview.app itself cannot be extended: its document types are a fixed list and
+it consumes no extension point.
+
 ## Dependencies
 
-Three, all permissively licensed:
+One:
 
 | Package | Purpose | Licence |
 |---|---|---|
 | [swift-markdown](https://github.com/swiftlang/swift-markdown) | CommonMark and GFM parsing, via cmark-gfm | Apache 2.0 |
-| [SwaTex](https://github.com/PhraseHQ/SwaTex) | LaTeX typesetting | MIT |
-| [swift-mermaid](https://github.com/Australware/swift-mermaid) | Diagram rendering | MIT |
 
 ## Licence
 
