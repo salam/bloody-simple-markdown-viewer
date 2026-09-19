@@ -54,9 +54,17 @@ extension DocumentWindowController: NSToolbarDelegate {
                           action: #selector(toggleOutline(_:)))
 
         case .bookmark:
-            return button(identifier, symbol: "bookmark",
-                          label: "Bookmark", tooltip: "Bookmark this position",
-                          action: #selector(addBookmark(_:)))
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let button = NSPopUpButton(frame: .zero, pullsDown: true)
+            button.bezelStyle = .toolbar
+            button.imagePosition = .imageOnly
+            button.menu = NSMenu()
+            button.menu?.delegate = self
+            bookmarkButton = button
+            item.view = button
+            item.label = "Bookmarks"
+            item.toolTip = "Bookmarks in this document"
+            return item
 
         case .taskFilter:
             let item = NSToolbarItem(itemIdentifier: identifier)

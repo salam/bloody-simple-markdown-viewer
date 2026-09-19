@@ -3,7 +3,7 @@ import MarkdownCore
 
 final class DocumentWindowController: NSWindowController, NSWindowDelegate,
                                       NSTextViewDelegate, NSMenuItemValidation,
-                                      NSSearchFieldDelegate {
+                                      NSSearchFieldDelegate, NSMenuDelegate {
     private var splitView: NSSplitView!
     private var outlineScrollView: NSScrollView!
     private var outlineTable: NSTableView!
@@ -14,6 +14,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     var matchCountLabel: NSTextField?
     var findOptionsButton: NSPopUpButton?
     var taskFilterButton: NSPopUpButton?
+    var bookmarkButton: NSPopUpButton?
 
     private var searchOptions = SearchOptions()
     private var matches: [NSRange] = []
@@ -347,6 +348,77 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
                     at: scrollView.contentView.bounds.origin))
         BookmarkStore.shared.add(for: url, sourceOffset: offset,
                                  snippet: snippet(around: offset, in: document.source))
+    }
+
+    /// Rebuilds the bookmark menu when it is about to open, so the list is
+    /// always current without observing the store.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === bookmarkButton?.menu else { return }
+        menu.removeAllItems()
+
+        let icon = NSMenuItem()
+        icon.image = NSImage(systemSymbolName: "bookmark", accessibilityDescription: "Bookmarks")
+        menu.addItem(icon)
+
+        let add = NSMenuItem(title: "Add Bookmark Here",
+                             action: #selector(addBookmark(_:)), keyEquivalent: "d")
+        add.target = self
+        menu.addItem(add)
+
+        guard let document = markdownDocument, let url = document.fileURL else { return }
+        let bookmarks = BookmarkStore.shared.bookmarks(for: url)
+        guard !bookmarks.isEmpty else {
+            menu.addItem(.separator())
+            let empty = NSMenuItem(title: "No bookmarks yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+            return
+        }
+
+        menu.addItem(.separator())
+        for bookmark in bookmarks {
+            let title = bookmark.snippet.isEmpty
+                ? "Position \(bookmark.sourceOffset)"
+                : String(bookmark.snippet.prefix(60))
+            let entry = NSMenuItem(title: title, action: #selector(goToBookmark(_:)), keyEquivalent: "")
+            entry.representedObject = bookmark.id.uuidString
+            entry.target = self
+            entry.image = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: nil)
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "Remove All Bookmarks",
+                               action: #selector(removeAllBookmarks(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+    }
+
+    @objc func goToBookmark(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String,
+              let document = markdownDocument, let url = document.fileURL,
+              let bookmark = BookmarkStore.shared.bookmarks(for: url)
+                  .first(where: { $0.id.uuidString == identifier }) else { return }
+
+        // Re-locate by content: the file may have been edited since the mark
+        // was made, which would leave the stored offset pointing at the wrong
+        // line.
+        let offset = BookmarkStore.shared.resolvedOffset(for: bookmark, in: document.source)
+        if document.isShowingSource {
+            let line = (textView.string as NSString)
+                .lineRange(for: NSRange(location: min(offset, (textView.string as NSString).length),
+                                        length: 0))
+            textView.reveal(line)
+        } else {
+            scrollView.scrollToCharacterOffset(
+                document.rendered.characterOffset(forSourceOffset: offset))
+        }
+    }
+
+    @objc func removeAllBookmarks(_ sender: Any?) {
+        guard let url = markdownDocument?.fileURL else { return }
+        for bookmark in BookmarkStore.shared.bookmarks(for: url) {
+            BookmarkStore.shared.remove(bookmark, for: url)
+        }
     }
 
     private func snippet(around offset: Int, in source: String) -> String {

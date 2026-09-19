@@ -5,11 +5,16 @@ import AppKit
 /// Stores a short snippet of the line it sat on as well as the byte offset, so
 /// a bookmark can be re-found by content when the file has been edited
 /// underneath it rather than silently pointing at the wrong line.
-struct Bookmark: Codable, Identifiable, Equatable {
-    var id = UUID()
-    var sourceOffset: Int
-    var snippet: String
-    var created: Date = Date()
+public struct Bookmark: Codable, Identifiable, Equatable {
+    public var id = UUID()
+    public var sourceOffset: Int
+    public var snippet: String
+    public var created: Date = Date()
+
+    public init(sourceOffset: Int, snippet: String) {
+        self.sourceOffset = sourceOffset
+        self.snippet = snippet
+    }
 }
 
 /// Persists bookmarks per file.
@@ -17,8 +22,8 @@ struct Bookmark: Codable, Identifiable, Equatable {
 /// Keyed by security-scoped bookmark data rather than by path, so marks survive
 /// the file being moved or renamed.
 @MainActor
-final class BookmarkStore {
-    static let shared = BookmarkStore()
+public final class BookmarkStore {
+    public static let shared = BookmarkStore()
 
     private struct Entry: Codable {
         var bookmarkData: Data?
@@ -29,22 +34,27 @@ final class BookmarkStore {
     private var entries: [String: Entry] = [:]
     private let storeURL: URL
 
-    init() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory,
-                                               in: .userDomainMask)[0]
-            .appendingPathComponent("BloodySimpleMarkdownViewer", isDirectory: true)
-        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        storeURL = support.appendingPathComponent("bookmarks.json")
+    /// A custom location is used by tests, so they never touch the real store.
+    public init(storeURL: URL? = nil) {
+        if let storeURL {
+            self.storeURL = storeURL
+        } else {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                   in: .userDomainMask)[0]
+                .appendingPathComponent("BloodySimpleMarkdownViewer", isDirectory: true)
+            try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+            self.storeURL = support.appendingPathComponent("bookmarks.json")
+        }
         load()
     }
 
     private func key(for url: URL) -> String { url.standardizedFileURL.path }
 
-    func bookmarks(for url: URL) -> [Bookmark] {
+    public func bookmarks(for url: URL) -> [Bookmark] {
         entries[key(for: url)]?.bookmarks.sorted { $0.sourceOffset < $1.sourceOffset } ?? []
     }
 
-    func add(for url: URL, sourceOffset: Int, snippet: String) {
+    public func add(for url: URL, sourceOffset: Int, snippet: String) {
         var entry = entries[key(for: url)] ?? Entry(
             bookmarkData: try? url.bookmarkData(options: .withSecurityScope),
             lastKnownPath: url.path,
@@ -60,7 +70,7 @@ final class BookmarkStore {
         save()
     }
 
-    func remove(_ bookmark: Bookmark, for url: URL) {
+    public func remove(_ bookmark: Bookmark, for url: URL) {
         guard var entry = entries[key(for: url)] else { return }
         entry.bookmarks.removeAll { $0.id == bookmark.id }
         entries[key(for: url)] = entry
@@ -69,7 +79,7 @@ final class BookmarkStore {
 
     /// Re-locates a bookmark whose file has changed underneath it, by looking
     /// for its snippet near the recorded offset before falling back to it.
-    func resolvedOffset(for bookmark: Bookmark, in source: String) -> Int {
+    public func resolvedOffset(for bookmark: Bookmark, in source: String) -> Int {
         let ns = source as NSString
         guard !bookmark.snippet.isEmpty, ns.length > 0 else {
             return min(bookmark.sourceOffset, max(ns.length - 1, 0))
