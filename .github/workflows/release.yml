@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Signed, notarised release
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+      - name: Build Release
+        run: |
+          xcodegen generate
+          xcodebuild \
+            -project BloodySimpleMarkdownViewer.xcodeproj \
+            -scheme Markdown \
+            -configuration Release \
+            -derivedDataPath build \
+            build
+
+      - name: Verify the sandbox entitlement survived signing
+        run: |
+          APPEX="build/Build/Products/Release/Markdown.app/Contents/PlugIns/MarkdownQuickLook.appex"
+          # PlugInKit silently refuses to register an extension whose
+          # entitlements were stripped after signing, and says so only in
+          # pkd's log. Catch it here instead of shipping a dead extension.
+          codesign -d --entitlements - "$APPEX" 2>&1 | grep -q "app-sandbox" \
+            || { echo "The extension lost its sandbox entitlement and will not load"; exit 1; }
+          codesign --verify --deep --strict build/Build/Products/Release/Markdown.app
+
+      - name: Notarise and staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          APP="build/Build/Products/Release/Markdown.app"
+          ditto -c -k --keepParent "$APP" Markdown.zip
+          xcrun notarytool submit Markdown.zip \
+            --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
+            --password "$APP_PASSWORD" --wait
+          xcrun stapler staple "$APP"
+          rm Markdown.zip
+          ditto -c -k --keepParent "$APP" Markdown.zip
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Markdown.zip
+          generate_release_notes: true

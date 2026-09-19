@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The rendering engine is a plain SwiftPM package, so this runs without Xcode
+  # and gives contributors fast feedback on the part most changes touch.
+  engine:
+    name: Engine tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Show toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  # Builds the app and the Quick Look extension. Ad-hoc signing is enough to
+  # compile and link; a runner has no Developer ID and does not need one.
+  app:
+    name: App and extension
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build
+        run: |
+          xcodebuild \
+            -project BloodySimpleMarkdownViewer.xcodeproj \
+            -scheme Markdown \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM= \
+            build
+      - name: Check the extension was embedded
+        run: |
+          APPEX="build/Build/Products/Debug/Markdown.app/Contents/PlugIns/MarkdownQuickLook.appex"
+          test -d "$APPEX" || { echo "Quick Look extension is missing from the app bundle"; exit 1; }
+          echo "Embedded: $APPEX"
+      - name: Check the document types survived
+        run: |
+          PLIST="build/Build/Products/Debug/Markdown.app/Contents/Info.plist"
+          # XcodeGen's `info:` block generates a plist and would silently
+          # replace the hand-written one, dropping every file association.
+          plutil -p "$PLIST" | grep -q "net.daringfireball.markdown" \
+            || { echo "Markdown file types are missing from Info.plist"; exit 1; }
+          plutil -p "$PLIST" | grep -q "NSDocumentClass" \
+            || { echo "NSDocumentClass is missing; the app would refuse to open files"; exit 1; }
+          echo "Document types present."
