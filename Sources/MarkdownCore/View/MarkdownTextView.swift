@@ -83,7 +83,32 @@ public final class MarkdownTextView: NSTextView {
 
     public func display(_ document: RenderedDocument) {
         textStorage?.setAttributedString(document.attributedString)
+        refreshViewport()
+    }
+
+    /// Forces a viewport layout pass.
+    ///
+    /// Attachment views, such as tables, are created by the viewport layout
+    /// controller. Without this the table stays invisible until something else
+    /// provokes a pass, so it would appear only after the first scroll or a
+    /// Select All.
+    public func refreshViewport() {
+        guard let layoutManager = textLayoutManager else {
+            needsDisplay = true
+            return
+        }
+        layoutManager.textViewportLayoutController.layoutViewport()
+        needsLayout = true
         needsDisplay = true
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // The first real layout pass can only happen once there is a window.
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshViewport()
+        }
     }
 
     public func displaySource(_ source: String, theme: Theme) {
@@ -97,6 +122,57 @@ public final class MarkdownTextView: NSTextView {
             }()
         ]
         textStorage?.setAttributedString(NSAttributedString(string: source, attributes: attrs))
+        refreshViewport()
+    }
+
+    // MARK: Search highlighting
+
+    private var highlightedMatches: [NSRange] = []
+
+    /// Highlights search matches without touching the text storage.
+    ///
+    /// TextKit 2 rendering attributes are display-only, so highlighting costs
+    /// nothing in the document and leaves undo, editing and the saved file
+    /// completely unaffected.
+    public func highlight(matches: [NSRange], current: Int?) {
+        guard let layoutManager = textLayoutManager else { return }
+        layoutManager.setRenderingAttributes([:], for: layoutManager.documentRange)
+        highlightedMatches = matches
+
+        for (index, range) in matches.enumerated() {
+            guard let textRange = self.textRange(from: range) else { continue }
+            let isCurrent = index == current
+            layoutManager.setRenderingAttributes([
+                .backgroundColor: isCurrent
+                    ? NSColor.systemYellow.withAlphaComponent(0.85)
+                    : NSColor.systemYellow.withAlphaComponent(0.32),
+                .foregroundColor: isCurrent ? NSColor.black : theme.textColor
+            ], for: textRange)
+        }
+        needsDisplay = true
+    }
+
+    public func clearHighlights() {
+        guard let layoutManager = textLayoutManager else { return }
+        layoutManager.setRenderingAttributes([:], for: layoutManager.documentRange)
+        highlightedMatches = []
+        needsDisplay = true
+    }
+
+    /// Converts a text-storage range into the TextKit 2 range type.
+    public func textRange(from range: NSRange) -> NSTextRange? {
+        guard let contentManager = textLayoutManager?.textContentManager,
+              let start = contentManager.location(contentManager.documentRange.location,
+                                                  offsetBy: range.location),
+              let end = contentManager.location(start, offsetBy: range.length) else { return nil }
+        return NSTextRange(location: start, end: end)
+    }
+
+    /// Scrolls a range into view and selects it.
+    public func reveal(_ range: NSRange) {
+        guard range.location != NSNotFound else { return }
+        setSelectedRange(range)
+        scrollRangeToVisible(range)
         needsDisplay = true
     }
 

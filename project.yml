@@ -30,19 +30,17 @@ targets:
       - path: App
         excludes:
           - Resources/Info.plist
-          - Markdown.entitlements
+          - Resources/Markdown.entitlements
     dependencies:
       - package: MarkdownCore
         product: MarkdownCore
-    entitlements:
-      path: App/Markdown.entitlements
     settings:
       base:
         PRODUCT_NAME: Markdown
         PRODUCT_MODULE_NAME: BloodySimpleMarkdownViewer
         PRODUCT_BUNDLE_IDENTIFIER: ch.sala.BloodySimpleMarkdownViewer
         INFOPLIST_FILE: App/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/Markdown.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Markdown.entitlements
         GENERATE_INFOPLIST_FILE: NO
       configs:
         Debug:

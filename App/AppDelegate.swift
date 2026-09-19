@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Files opened together arrive here as one batch, whether from Finder,
     /// `open a.md b.md`, or a drop on the Dock icon. A batch becomes one
     /// window with tabs; a separate open becomes a separate window.
+    /// Kept for completeness. In a document-based app NSDocumentController
+    /// handles the odoc Apple Event itself and this is never called, which is
+    /// why the window and tab rule lives in DocumentController instead.
     func application(_ application: NSApplication, open urls: [URL]) {
         documentController.openBatch(urls, joining: nil)
     }

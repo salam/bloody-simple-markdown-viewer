@@ -60,8 +60,12 @@ enum MainMenu {
         submenu("File") { menu in
             add(menu, "Open…", #selector(NSDocumentController.openDocument(_:)), "o")
 
+            // NSDocumentController adopts this menu only when it carries the
+            // standard identifier. Without it the framework inserts a second
+            // Open Recent menu of its own, and one of the two stays empty.
             let recent = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
             let recentMenu = NSMenu(title: "Open Recent")
+            recentMenu.identifier = NSUserInterfaceItemIdentifier("NSRecentDocumentsMenu")
             add(recentMenu, "Clear Menu", #selector(NSDocumentController.clearRecentDocuments(_:)))
             recent.submenu = recentMenu
             menu.addItem(recent)
@@ -96,6 +100,8 @@ enum MainMenu {
                 [.command, .shift])
             menu.addItem(.separator())
             add(menu, "Show Outline", #selector(AppCommands.toggleOutline(_:)), "0", [.command, .option])
+            menu.addItem(.separator())
+            add(menu, "Add Bookmark", #selector(AppCommands.addBookmark(_:)), "d")
             menu.addItem(.separator())
             add(menu, "Actual Size", #selector(AppCommands.resetZoom(_:)), "0")
             add(menu, "Zoom In", #selector(AppCommands.zoomIn(_:)), "+")
@@ -145,6 +151,7 @@ enum MainMenu {
     func zoomIn(_ sender: Any?)
     func zoomOut(_ sender: Any?)
     func resetZoom(_ sender: Any?)
+    func addBookmark(_ sender: Any?)
     func makeDefaultMarkdownApp(_ sender: Any?)
     func showSyntaxGuide(_ sender: Any?)
     func openProjectPage(_ sender: Any?)
