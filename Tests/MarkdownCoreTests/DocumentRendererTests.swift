@@ -483,7 +483,8 @@ struct TableAttachmentSizingTests {
     /// thread in tests and would throw if it did.
     @Test func measuringIsPureGeometry() {
         let geometry = TableGeometry(model: TableModel(
-            header: ["a", "b"], alignments: [.left, .right], rows: [["1", "2"], ["3", "4"]]))
+            header: ["a", "b"], alignments: [.left, .right], rows: [["1", "2"], ["3", "4"]]),
+            theme: .system)
         #expect(geometry.columnWidths.count == 2)
         #expect(geometry.rowHeights.count == 3)
         #expect(geometry.size.height > 0)

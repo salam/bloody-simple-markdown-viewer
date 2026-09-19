@@ -75,6 +75,13 @@ enum MainMenu {
             add(menu, "Save", #selector(NSDocument.save(_:)), "s")
             add(menu, "Save As…", #selector(NSDocument.saveAs(_:)), "s", [.command, .shift])
             add(menu, "Revert to Saved", #selector(NSDocument.revertToSaved(_:)))
+            menu.addItem(.separator())
+            add(menu, "Export as PDF…", #selector(AppCommands.exportAsPDF(_:)), "e",
+                [.command, .shift])
+            menu.addItem(.separator())
+            add(menu, "Page Setup…", #selector(NSApplication.runPageLayout(_:)), "p",
+                [.command, .shift])
+            add(menu, "Print…", #selector(NSView.printView(_:)), "p")
         }
     }
 
@@ -155,6 +162,7 @@ enum MainMenu {
     func zoomOut(_ sender: Any?)
     func resetZoom(_ sender: Any?)
     func addBookmark(_ sender: Any?)
+    func exportAsPDF(_ sender: Any?)
     func clearTaskFilter(_ sender: Any?)
     func makeDefaultMarkdownApp(_ sender: Any?)
     func showSyntaxGuide(_ sender: Any?)

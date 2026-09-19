@@ -39,13 +39,27 @@ public struct TableModel {
         column < alignments.count ? alignments[column] : .left
     }
 
-    /// All rows including the header, as a uniform grid with gaps padded.
-    func allRows() -> [[NSAttributedString]] {
+    /// All rows including the header, padded to a uniform grid, with the
+    /// header already bolded.
+    ///
+    /// Measuring and drawing both go through this. Measuring the header in the
+    /// regular font while drawing it bold makes every header cell wrap, because
+    /// bold is wider than what the column was sized for.
+    func styledRows(theme: Theme) -> [[NSAttributedString]] {
         let columns = columnCount
         func pad(_ row: [NSAttributedString]) -> [NSAttributedString] {
             (0..<columns).map { $0 < row.count ? row[$0] : NSAttributedString() }
         }
-        return (header.isEmpty ? [] : [pad(header)]) + rows.map(pad)
+        func bolded(_ cell: NSAttributedString) -> NSAttributedString {
+            guard cell.length > 0 else { return cell }
+            let copy = NSMutableAttributedString(attributedString: cell)
+            copy.addAttribute(.font,
+                              value: NSFont.boldSystemFont(ofSize: theme.baseFontSize),
+                              range: NSRange(location: 0, length: copy.length))
+            return copy
+        }
+        let head = header.isEmpty ? [] : [pad(header).map(bolded)]
+        return head + rows.map(pad)
     }
 
     var hasHeader: Bool { !header.isEmpty }
@@ -63,8 +77,8 @@ public struct TableGeometry {
     public let rowHeights: [CGFloat]
     public let size: CGSize
 
-    public init(model: TableModel) {
-        let rows = model.allRows()
+    public init(model: TableModel, theme: Theme) {
+        let rows = model.styledRows(theme: theme)
         let columns = model.columnCount
         guard columns > 0, !rows.isEmpty else {
             columnWidths = []
@@ -123,15 +137,24 @@ public final class TableTextAttachment: NSTextAttachment {
     public let model: TableModel
     public let theme: Theme
     public let geometry: TableGeometry
+    public let rendering: AttachmentRendering
 
     public var measuredSize: CGSize { geometry.size }
 
-    public init(model: TableModel, theme: Theme) {
+    public init(model: TableModel, theme: Theme, rendering: AttachmentRendering = .interactive) {
         self.model = model
         self.theme = theme
-        self.geometry = TableGeometry(model: model)
+        self.rendering = rendering
+        self.geometry = TableGeometry(model: model, theme: theme)
         super.init(data: nil, ofType: nil)
         bounds = CGRect(origin: .zero, size: geometry.size)
+
+        if rendering == .flattened {
+            // Printing never instantiates attachment views, so the table has to
+            // be an image or it simply will not appear on the page.
+            image = Self.flatten(model: model, theme: theme, geometry: geometry)
+            return
+        }
         // Without this the layout system never asks for a view provider.
         allowsTextAttachmentView = true
         // An attachment with no image draws a generic document icon, which
@@ -151,9 +174,28 @@ public final class TableTextAttachment: NSTextAttachment {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// An image that draws the table on demand rather than a captured bitmap.
+    ///
+    /// A block-based image replays its drawing into whatever context it lands
+    /// in. Printed to PDF that means the cell text stays real, selectable,
+    /// searchable text drawn by CoreText, instead of a picture of text.
+    private static func flatten(model: TableModel, theme: Theme,
+                                geometry: TableGeometry) -> NSImage? {
+        let view = TableView(model: model, theme: theme, geometry: geometry)
+        view.frame = CGRect(origin: .zero, size: geometry.size)
+        // `flipped: true` gives the y-down context TableView draws in. Adding
+        // a transform on top of that flips it twice and prints the table
+        // upside down.
+        return NSImage(size: geometry.size, flipped: true) { _ in
+            view.draw(view.bounds)
+            return true
+        }
+    }
+
     public override func viewProvider(for parentView: NSView?,
                                       location: any NSTextLocation,
                                       textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
+        guard rendering == .interactive else { return nil }
         let provider = TableViewProvider(
             textAttachment: self,
             parentView: parentView,
@@ -209,7 +251,7 @@ public final class TableView: NSView {
     public override var intrinsicContentSize: NSSize { geometry.size }
 
     public override func draw(_ dirtyRect: NSRect) {
-        let rows = model.allRows()
+        let rows = model.styledRows(theme: theme)
         guard !rows.isEmpty, !geometry.columnWidths.isEmpty else { return }
 
         // Header band.
@@ -240,6 +282,7 @@ public final class TableView: NSView {
                 let width = geometry.columnWidths[column] - TableGeometry.cellPaddingX * 2
                 guard width > 0 else { continue }
 
+                // Already bolded by styledRows, so it matches what was measured.
                 let styled = NSMutableAttributedString(attributedString: cell)
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.alignment = switch model.alignment(forColumn: column) {
@@ -250,11 +293,6 @@ public final class TableView: NSView {
                 paragraph.lineBreakMode = .byWordWrapping
                 let full = NSRange(location: 0, length: styled.length)
                 styled.addAttribute(.paragraphStyle, value: paragraph, range: full)
-                if model.hasHeader && rowIndex == 0 {
-                    styled.addAttribute(.font,
-                                        value: NSFont.boldSystemFont(ofSize: theme.baseFontSize),
-                                        range: full)
-                }
 
                 let box = styled.boundingRect(
                     with: CGSize(width: width, height: .greatestFiniteMagnitude),

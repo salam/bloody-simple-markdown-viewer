@@ -15,6 +15,7 @@ public final class MathTextAttachment: NSTextAttachment {
     public let latex: String
     public let isDisplay: Bool
     public let theme: Theme
+    public let rendering: AttachmentRendering
     /// Set when the formula could not be parsed, so the host can fall back to
     /// showing the source rather than a blank space.
     public private(set) var failed = false
@@ -23,7 +24,9 @@ public final class MathTextAttachment: NSTextAttachment {
     /// otherwise produce a display list millions of points wide.
     private static let maxDimension: CGFloat = 4000
 
-    public init(latex: String, isDisplay: Bool, theme: Theme) {
+    public init(latex: String, isDisplay: Bool, theme: Theme,
+                rendering: AttachmentRendering = .interactive) {
+        self.rendering = rendering
         // `\operatorname*` renders in math italic instead of upright roman,
         // a known upstream defect. Rewriting to the unstarred form is correct
         // for everything except limit placement, which is a fair trade.
@@ -31,7 +34,7 @@ public final class MathTextAttachment: NSTextAttachment {
         self.isDisplay = isDisplay
         self.theme = theme
         super.init(data: nil, ofType: nil)
-        allowsTextAttachmentView = isDisplay
+        allowsTextAttachmentView = isDisplay && rendering == .interactive
         render()
     }
 
@@ -61,17 +64,33 @@ public final class MathTextAttachment: NSTextAttachment {
             return
         }
 
-        if isDisplay {
+        if isDisplay && rendering == .interactive {
             bounds = CGRect(x: 0, y: 0, width: metrics.width, height: metrics.height)
         } else {
-            guard let cgImage = ImageRenderer.image(for: list, options: options) else {
-                failed = true
-                bounds = .zero
-                return
+            let size = NSSize(width: metrics.width, height: metrics.height)
+            if rendering == .flattened {
+                // Draw on demand so printed formulas are vector glyphs rather
+                // than a bitmap that goes fuzzy when the page is scaled.
+                // The renderer establishes its own orientation, exactly as it
+                // does when drawing into a bitmap context. Adding a flip here
+                // prints the formula upside down.
+                image = NSImage(size: size, flipped: false) { _ in
+                    guard let context = NSGraphicsContext.current?.cgContext else { return false }
+                    DisplayListRenderer.draw(list, in: context, options: options)
+                    return true
+                }
+            } else {
+                guard let cgImage = ImageRenderer.image(for: list, options: options) else {
+                    failed = true
+                    bounds = .zero
+                    return
+                }
+                image = NSImage(cgImage: cgImage, size: size)
             }
-            image = NSImage(cgImage: cgImage, size: NSSize(width: metrics.width, height: metrics.height))
-            // Sit on the surrounding baseline rather than floating above it.
-            let depth = metrics.height - metrics.baseline
+            // Inline formulas sit on the surrounding baseline rather than
+            // floating above it. A flattened display formula has no surrounding
+            // text to align with, so it keeps a zero offset.
+            let depth = isDisplay ? 0 : metrics.height - metrics.baseline
             bounds = CGRect(x: 0, y: -depth, width: metrics.width, height: metrics.height)
         }
     }
@@ -79,7 +98,7 @@ public final class MathTextAttachment: NSTextAttachment {
     public override func viewProvider(for parentView: NSView?,
                                       location: any NSTextLocation,
                                       textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
-        guard isDisplay, !failed else { return nil }
+        guard isDisplay, !failed, rendering == .interactive else { return nil }
         let provider = MathViewProvider(
             textAttachment: self,
             parentView: parentView,

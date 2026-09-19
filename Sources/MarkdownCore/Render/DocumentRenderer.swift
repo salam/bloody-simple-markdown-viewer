@@ -9,10 +9,13 @@ import Markdown
 public final class DocumentRenderer {
     public let theme: Theme
     public let baseURL: URL?
+    public let attachmentRendering: AttachmentRendering
 
-    public init(theme: Theme = .system, baseURL: URL? = nil) {
+    public init(theme: Theme = .system, baseURL: URL? = nil,
+                attachmentRendering: AttachmentRendering = .interactive) {
         self.theme = theme
         self.baseURL = baseURL
+        self.attachmentRendering = attachmentRendering
     }
 
     public func render(source: String) -> RenderedDocument {
@@ -33,7 +36,8 @@ public final class DocumentRenderer {
             bodyLineOffset: split.bodyLineOffset,
             bodyStartByte: bodyStartByte,
             lineIndex: lineIndex,
-            mathSpans: math.spans
+            mathSpans: math.spans,
+            attachmentRendering: attachmentRendering
         )
         let text = visitor.visit(document)
         let trimmed = NSMutableAttributedString(attributedString: text)
@@ -86,6 +90,7 @@ struct AttributedStringVisitor: MarkupVisitor {
     let bodyStartByte: Int
     let lineIndex: LineIndex
     let mathSpans: [MathSpan]
+    let attachmentRendering: AttachmentRendering
 
     var outline: [OutlineEntry] = []
     private var usedAnchors: Set<String> = []
@@ -93,13 +98,15 @@ struct AttributedStringVisitor: MarkupVisitor {
     private var listDepth = 0
 
     init(theme: Theme, baseURL: URL?, bodyLineOffset: Int, bodyStartByte: Int,
-         lineIndex: LineIndex, mathSpans: [MathSpan]) {
+         lineIndex: LineIndex, mathSpans: [MathSpan],
+         attachmentRendering: AttachmentRendering) {
         self.theme = theme
         self.baseURL = baseURL
         self.bodyLineOffset = bodyLineOffset
         self.bodyStartByte = bodyStartByte
         self.lineIndex = lineIndex
         self.mathSpans = mathSpans
+        self.attachmentRendering = attachmentRendering
     }
 
     // MARK: Source mapping
@@ -292,7 +299,8 @@ struct AttributedStringVisitor: MarkupVisitor {
 
         // GitHub renders a ```math fence as display math.
         if codeBlock.language?.lowercased() == "math" {
-            let attachment = MathTextAttachment(latex: code, isDisplay: true, theme: theme)
+            let attachment = MathTextAttachment(latex: code, isDisplay: true,
+                                                theme: theme, rendering: attachmentRendering)
             if !attachment.failed {
                 let out = NSMutableAttributedString(attachment: attachment)
                 out.addAttributes([
@@ -516,7 +524,8 @@ struct AttributedStringVisitor: MarkupVisitor {
         }
 
         let model = TableModel(header: header, alignments: alignments, rows: rows)
-        let attachment = TableTextAttachment(model: model, theme: theme)
+        let attachment = TableTextAttachment(model: model, theme: theme,
+                                             rendering: attachmentRendering)
         let out = NSMutableAttributedString(attachment: attachment)
         let style = paragraphStyle(spacingBefore: 8, spacingAfter: 14)
         out.addAttributes([
@@ -554,7 +563,8 @@ struct AttributedStringVisitor: MarkupVisitor {
     /// must never silently swallow something it cannot draw.
     private func mathAttachment(for span: MathSpan,
                                 attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        let attachment = MathTextAttachment(latex: span.latex, isDisplay: span.isDisplay, theme: theme)
+        let attachment = MathTextAttachment(latex: span.latex, isDisplay: span.isDisplay,
+                                            theme: theme, rendering: attachmentRendering)
         if attachment.failed {
             var fallback = attributes
             fallback[.font] = theme.monoFont

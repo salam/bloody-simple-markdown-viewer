@@ -38,6 +38,9 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 - **Outline** of the document's headings, and **bookmarks** that survive the
   file being edited, moved or renamed.
 - **Source mode.** Toggle to the raw Markdown, edit it, and save.
+- **Print and export to PDF.** Paginated, with a running head and page numbers,
+  as selectable text rather than a picture of text. Tables, code and formulas
+  all come through.
 - **Everything in the title bar.** Tools and tabs share the row with the window
   buttons, so the document gets the whole window.
 - **Light and dark**, following the system, with no second theme to maintain.
@@ -92,6 +95,12 @@ viewport layout for the entire document, and that lazy layout is the reason a
 drawn directly. `NSTextList` has the same problem: it overrides the
 indentation you set, putting every list marker in the same column regardless of
 nesting depth.
+
+**Printing never instantiates attachment views.** A table or formula hosted as a
+live view is simply absent from the page, with no error. Print and PDF therefore
+re-render the document in a flattened mode where those become block-based images
+that replay their drawing into the page context, so the output stays vector and
+its text stays selectable.
 
 **Reading `NSTextView.layoutManager` is a one-way switch.** A single read, from
 anywhere including a dependency, permanently drops the view to TextKit 1. The

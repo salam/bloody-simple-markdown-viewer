@@ -18,6 +18,18 @@ public enum AlertKind: String, CaseIterable, Sendable {
     }
 }
 
+/// How attachments are produced.
+///
+/// On screen, tables and display math host live views so they stay crisp at any
+/// zoom. Printing goes through a different path that does not instantiate
+/// attachment views at all, so those would silently vanish from the page.
+/// Flattened mode rasterises them into the attachment's image instead, which
+/// prints and exports correctly.
+public enum AttachmentRendering: Sendable {
+    case interactive
+    case flattened
+}
+
 /// Typography and colour for the rendered document.
 ///
 /// Every colour is a dynamic `NSColor`, so dark mode requires no second theme

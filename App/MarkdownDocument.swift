@@ -49,6 +49,45 @@ final class MarkdownDocument: NSDocument {
         rendered = DocumentRenderer(theme: theme, baseURL: fileURL).render(source: source)
     }
 
+    // MARK: Printing
+
+    /// NSDocument routes Cmd-P here, so printing works from the menu, the
+    /// toolbar and the responder chain without any extra wiring.
+    override func printOperation(withSettings printSettings: [NSPrintInfo.AttributeKey: Any])
+        throws -> NSPrintOperation {
+        let info = DocumentPrinter.defaultPrintInfo()
+        for (key, value) in printSettings {
+            info.dictionary()[key] = value
+        }
+        return DocumentPrinter.operation(source: source,
+                                         title: displayName ?? "Document",
+                                         baseURL: fileURL,
+                                         printInfo: info)
+    }
+
+    /// Exports the rendered document as a PDF.
+    @IBAction func exportAsPDF(_ sender: Any?) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = (displayName as NSString?)?
+            .deletingPathExtension.appending(".pdf") ?? "Document.pdf"
+        panel.canCreateDirectories = true
+        panel.message = "Export the rendered Markdown as a PDF."
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let self, let url = panel.url else { return }
+            DocumentPrinter.writePDF(source: self.source,
+                                     title: self.displayName ?? "Document",
+                                     baseURL: self.fileURL,
+                                     to: url)
+        }
+        if let window = windowControllers.first?.window {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            complete(panel.runModal())
+        }
+    }
+
     /// Reload after the file changed on disk underneath us.
     override func presentedItemDidChange() {
         guard let url = fileURL, !isDocumentEdited else { return }

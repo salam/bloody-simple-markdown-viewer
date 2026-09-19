@@ -5,6 +5,7 @@ extension NSToolbarItem.Identifier {
     static let sourceToggle = NSToolbarItem.Identifier("ch.sala.bsmv.sourceToggle")
     static let outlineToggle = NSToolbarItem.Identifier("ch.sala.bsmv.outlineToggle")
     static let bookmark = NSToolbarItem.Identifier("ch.sala.bsmv.bookmark")
+    static let export = NSToolbarItem.Identifier("ch.sala.bsmv.export")
     static let taskFilter = NSToolbarItem.Identifier("ch.sala.bsmv.taskFilter")
     static let search = NSToolbarItem.Identifier("ch.sala.bsmv.search")
     static let matchCount = NSToolbarItem.Identifier("ch.sala.bsmv.matchCount")
@@ -30,11 +31,11 @@ extension DocumentWindowController: NSToolbarDelegate {
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.sourceToggle, .outlineToggle, .taskFilter, .flexibleSpace,
-         .matchCount, .search, .findOptions, .bookmark]
+         .matchCount, .search, .findOptions, .bookmark, .export]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sourceToggle, .outlineToggle, .taskFilter, .bookmark, .search, .matchCount, .findOptions,
+        [.sourceToggle, .outlineToggle, .taskFilter, .bookmark, .export, .search, .matchCount, .findOptions,
          .flexibleSpace, .space, .sidebarTrackingSeparator]
     }
 
@@ -83,6 +84,28 @@ extension DocumentWindowController: NSToolbarDelegate {
             item.view = button
             item.label = "Tasks"
             item.toolTip = "Show only task items"
+            return item
+
+        case .export:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let button = NSPopUpButton(frame: .zero, pullsDown: true)
+            button.bezelStyle = .toolbar
+            button.imagePosition = .imageOnly
+            let menu = NSMenu()
+            let icon = NSMenuItem()
+            icon.image = NSImage(systemSymbolName: "square.and.arrow.up",
+                                 accessibilityDescription: "Export")
+            menu.addItem(icon)
+            let pdf = NSMenuItem(title: "Export as PDF…",
+                                 action: #selector(MarkdownDocument.exportAsPDF(_:)),
+                                 keyEquivalent: "")
+            menu.addItem(pdf)
+            let print = NSMenuItem(title: "Print…",
+                                   action: #selector(NSView.printView(_:)), keyEquivalent: "")
+            menu.addItem(print)
+            item.view = button
+            item.label = "Export"
+            item.toolTip = "Export as PDF or print"
             return item
 
         case .search:
