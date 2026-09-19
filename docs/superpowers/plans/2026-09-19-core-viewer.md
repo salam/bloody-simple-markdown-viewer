@@ -568,6 +568,23 @@ Expected: the file opens rendered. Then double-click a `.md` file on the Desktop
 
 ---
 
-## Later phases
+## Outcome
 
-Each gets its own plan once this one produces a working app: source mode and editing, search and bookmarks, math and Mermaid, the Quick Look and Thumbnail extensions, and the notarized release with CI.
+All of it shipped under this one plan rather than needing follow-on plans,
+because the Phase 0 spike removed the largest unknown. TextKit 2's lazy
+viewport layout handled a 16 MB file in 130 ms unaided, so the chunked parsing
+the spec reserved for large documents was never needed.
+
+Delivered: the core viewer, documents and tabs, drag and drop, source mode and
+editing, regex search, outline and bookmarks, native LaTeX and Mermaid, task
+states and filtering, print and PDF export, the Quick Look extension, and CI.
+
+Two findings changed the design mid-flight and are recorded in
+CONTRIBUTING.md, because both fail silently and a future contributor would
+otherwise undo them. `NSTextList` overrides the indentation you set, putting
+every marker in the same column regardless of nesting depth. And
+attachment-hosted views are invisible to printing, so anything hosted as a view
+needs a flattened branch or it vanishes from the page.
+
+Not built: a Thumbnail extension for Finder icons, and the diagram types the
+Mermaid library does not implement, which fall back to showing their source.
