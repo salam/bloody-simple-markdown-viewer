@@ -1,6 +1,6 @@
 # A Bloody Simple Markdown Viewer — Design
 
-**Status:** Draft for review
+**Status:** Approved 2026-09-19
 **Date:** 2026-09-19
 
 ## 1. Goal
@@ -362,12 +362,16 @@ Each phase is independently useful and independently shippable.
 | Mermaid fidelity is behind mermaid.js on the long tail of diagram types | Typed unsupported-type error drives a clean fallback to source |
 | Quick Look extension fails to register when entitlements are stripped after signing | Inside-out signing in the release script; a CI check asserting the sandbox entitlement survives |
 
-## 10. Decisions still open
+## 10. Naming and licence
 
-1. `CFBundleName` cannot usefully be "A Bloody Simple Markdown Viewer"; the macOS menu bar
-   truncates it. Proposal: `CFBundleName` is "Bloody Simple", `CFBundleDisplayName` is the
-   full name.
-2. Bundle identifier prefix. Proposal: `ch.sala.BloodySimpleMarkdownViewer`, matching the
-   existing `ch.sala` prefix.
-3. GitHub repository name. Proposal: `bloody-simple-markdown-viewer` under `salam`.
-4. Licence. Proposal: MIT, matching all three dependencies.
+| Item | Value |
+|---|---|
+| Menu bar and Dock (`CFBundleName`) | Markdown |
+| Full name (`CFBundleDisplayName`) | A Bloody Simple Markdown Viewer |
+| Bundle identifier | `ch.sala.BloodySimpleMarkdownViewer` |
+| Repository | `salam/bloody-simple-markdown-viewer` |
+| Licence | MIT |
+
+The menu bar reads "Markdown" so menus are immediately legible: Markdown > About,
+Markdown > Settings. The full name carries the personality everywhere it has room to,
+in the About box, the README and the repository.
