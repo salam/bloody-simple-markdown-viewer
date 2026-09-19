@@ -98,3 +98,32 @@ open -a Markdown ~/Desktop/notes.md
 ---
 
 That horizontal rule above is a real one.
+
+## Task states
+
+The viewer understands more than GitHub's two markers, and can filter to just
+the ones you care about from the checklist button in the title bar.
+
+- [x] Some
+- [✅] Other
+- [✔️] Bullet
+- [X] Point
+- [OK] Such
+- [DONE] as those
+- [~] in Arbeit
+- [WIP] also in progress
+- [ ] still open
+- [TODO] also open
+
+## Math
+
+Inline math sits on the baseline: $E = mc^2$, and so does
+$\hat{y} = \sigma(W^\top x + b)$ over $\mathbb{R}^{n \times d}$.
+
+Display math gets its own line:
+
+$$
+\mathcal{L}(\theta) = -\frac{1}{N} \sum_i \log p_\theta(y_i)
+$$
+
+ChatGPT's delimiters work too: \(x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}\)

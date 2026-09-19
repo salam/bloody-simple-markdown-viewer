@@ -13,11 +13,14 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     var searchField: NSSearchField?
     var matchCountLabel: NSTextField?
     var findOptionsButton: NSPopUpButton?
+    var taskFilterButton: NSPopUpButton?
 
     private var searchOptions = SearchOptions()
     private var matches: [NSRange] = []
     private var currentMatch: Int?
     private var isOutlineVisible = false
+    /// Empty means no filter: the whole document is shown.
+    private var taskFilterStates: Set<Checkbox.State> = []
     private var zoomStep = 0
 
     private var markdownDocument: MarkdownDocument? { document as? MarkdownDocument }
@@ -51,6 +54,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     private func setUpContent() {
         scrollView = MarkdownScrollView(theme: .system)
         scrollView.markdownTextView.delegate = self
+        // A double-click in the render opens the source at that spot.
+        scrollView.markdownTextView.onJumpToSource = { [weak self] sourceOffset in
+            self?.revealInSource(sourceOffset: sourceOffset)
+        }
+
         scrollView.markdownTextView.onFileDrop = { [weak self] urls in
             guard let self,
                   let controller = NSDocumentController.shared as? DocumentController else { return }
@@ -112,12 +120,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         } else {
             document.rerender()
             textView.theme = document.theme
-            textView.display(document.rendered)
+            if taskFilterStates.isEmpty {
+                textView.display(document.rendered)
+            } else {
+                // Filtered lines keep their source offsets, so double-clicking
+                // one still jumps to the right place in the real document.
+                textView.displayFiltered(
+                    TaskFilter.filtered(document.rendered,
+                                        states: taskFilterStates,
+                                        theme: document.theme))
+            }
             textView.isEditable = false
         }
         window?.title = document.displayName
         window?.tab.title = document.displayName
         outlineTable.reloadData()
+        updateTaskFilterMenu()
         runSearch()
     }
 
@@ -149,6 +167,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         }
     }
 
+    /// Switches to source mode and puts the caret at a source offset.
+    func revealInSource(sourceOffset: Int) {
+        guard let document = markdownDocument else { return }
+        if !document.isShowingSource {
+            document.isShowingSource = true
+            refresh()
+        }
+        let length = (textView.string as NSString).length
+        let target = min(max(sourceOffset, 0), length)
+        // Select the whole line, so the destination is obvious rather than an
+        // invisible caret somewhere in the middle of a paragraph.
+        let line = (textView.string as NSString).lineRange(for: NSRange(location: target, length: 0))
+        textView.reveal(line)
+        window?.makeFirstResponder(textView)
+    }
+
     // MARK: Outline
 
     @IBAction func toggleOutline(_ sender: Any?) {
@@ -175,6 +209,39 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             ? min(entry.sourceOffset, textView.string.utf16.count)
             : entry.characterOffset
         scrollView.scrollToCharacterOffset(target)
+    }
+
+    // MARK: Task filter
+
+    @objc func toggleTaskFilter(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let state = Checkbox.State(rawValue: raw) else { return }
+        // Picking a state shows only that state; picking it again clears it.
+        taskFilterStates = taskFilterStates == [state] ? [] : [state]
+        updateTaskFilterMenu()
+        refresh()
+    }
+
+    @objc func clearTaskFilter(_ sender: Any?) {
+        taskFilterStates = []
+        updateTaskFilterMenu()
+        refresh()
+    }
+
+    private func updateTaskFilterMenu() {
+        guard let menu = taskFilterButton?.menu else { return }
+        for item in menu.items {
+            guard let raw = item.representedObject as? String,
+                  let state = Checkbox.State(rawValue: raw) else { continue }
+            item.state = taskFilterStates.contains(state) ? .on : .off
+            if let document = markdownDocument {
+                let count = TaskFilter.taskCount(in: document.rendered, state: state)
+                item.title = "Only \(state.title)  (\(count))"
+                item.isEnabled = count > 0
+            }
+        }
+        // Make it obvious at a glance that a filter is on.
+        taskFilterButton?.contentTintColor = taskFilterStates.isEmpty ? nil : .controlAccentColor
     }
 
     // MARK: Zoom
@@ -301,6 +368,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             return !matches.isEmpty
         case #selector(addBookmark(_:)):
             return markdownDocument?.fileURL != nil
+        case #selector(toggleTaskFilter(_:)), #selector(clearTaskFilter(_:)):
+            return !(markdownDocument.map { TaskFilter.statesPresent(in: $0.rendered).isEmpty } ?? true)
         default:
             return true
         }

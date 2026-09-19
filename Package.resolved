@@ -1,6 +1,15 @@
 {
-  "originHash" : "2dfac763cf150d9466fe8870fee1100d35bf6503e9c689c1dd2559bb312bcaec",
+  "originHash" : "a0f1046a82443a8f6ded826e4cb64fd806a47d105cb48e483eae1c6ba7727396",
   "pins" : [
+    {
+      "identity" : "swatex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PhraseHQ/SwaTex.git",
+      "state" : {
+        "revision" : "2b38d0b9b9b9466ac1302ab93b37f3b90b8c74fc",
+        "version" : "0.5.0"
+      }
+    },
     {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",

@@ -13,6 +13,11 @@ public final class MarkdownTextView: NSTextView {
     /// them as tabs of the window that received the drop.
     public var onFileDrop: (([URL]) -> Void)?
 
+    /// Called when the reader double-clicks the rendered document, with the
+    /// UTF-8 source offset under the pointer. The host switches to source mode
+    /// and reveals that position.
+    public var onJumpToSource: ((Int) -> Void)?
+
     private static let acceptedExtensions: Set<String> = [
         "md", "markdown", "mdown", "mkd", "mkdn", "mdwn", "mdtext", "mdx", "qmd", "rmd", "txt"
     ]
@@ -111,6 +116,12 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
+    /// Shows a derived view of the document, such as the task filter's output.
+    public func displayFiltered(_ text: NSAttributedString) {
+        textStorage?.setAttributedString(text)
+        refreshViewport()
+    }
+
     public func displaySource(_ source: String, theme: Theme) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: theme.monoFont,
@@ -123,6 +134,37 @@ public final class MarkdownTextView: NSTextView {
         ]
         textStorage?.setAttributedString(NSAttributedString(string: source, attributes: attrs))
         refreshViewport()
+    }
+
+    // MARK: Jumping to source
+
+    /// A double-click in the rendered view jumps to the matching place in the
+    /// source.
+    ///
+    /// This deliberately takes precedence over following a link. A single click
+    /// still opens the link, so both gestures stay available, and intercepting
+    /// before `super` is what stops AppKit from opening the URL on the second
+    /// click of a double-click.
+    public override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 2, !isEditable, let onJumpToSource else {
+            super.mouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        let index = characterIndexForInsertion(at: point)
+        guard let storage = textStorage, storage.length > 0 else {
+            super.mouseDown(with: event)
+            return
+        }
+        let probe = min(max(index, 0), storage.length - 1)
+        let offset = storage.attribute(.sourceOffset, at: probe, effectiveRange: nil) as? Int ?? 0
+        onJumpToSource(offset)
+    }
+
+    /// Only a single click follows a link; a double-click is a jump to source.
+    public override func clicked(onLink link: Any, at charIndex: Int) {
+        guard NSApp.currentEvent?.clickCount ?? 1 == 1 else { return }
+        super.clicked(onLink: link, at: charIndex)
     }
 
     // MARK: Search highlighting

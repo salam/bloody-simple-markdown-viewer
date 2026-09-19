@@ -1,9 +1,11 @@
 import AppKit
+import MarkdownCore
 
 extension NSToolbarItem.Identifier {
     static let sourceToggle = NSToolbarItem.Identifier("ch.sala.bsmv.sourceToggle")
     static let outlineToggle = NSToolbarItem.Identifier("ch.sala.bsmv.outlineToggle")
     static let bookmark = NSToolbarItem.Identifier("ch.sala.bsmv.bookmark")
+    static let taskFilter = NSToolbarItem.Identifier("ch.sala.bsmv.taskFilter")
     static let search = NSToolbarItem.Identifier("ch.sala.bsmv.search")
     static let matchCount = NSToolbarItem.Identifier("ch.sala.bsmv.matchCount")
     static let findOptions = NSToolbarItem.Identifier("ch.sala.bsmv.findOptions")
@@ -27,12 +29,12 @@ extension DocumentWindowController: NSToolbarDelegate {
     }
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sourceToggle, .outlineToggle, .flexibleSpace,
+        [.sourceToggle, .outlineToggle, .taskFilter, .flexibleSpace,
          .matchCount, .search, .findOptions, .bookmark]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sourceToggle, .outlineToggle, .bookmark, .search, .matchCount, .findOptions,
+        [.sourceToggle, .outlineToggle, .taskFilter, .bookmark, .search, .matchCount, .findOptions,
          .flexibleSpace, .space, .sidebarTrackingSeparator]
     }
 
@@ -54,6 +56,34 @@ extension DocumentWindowController: NSToolbarDelegate {
             return button(identifier, symbol: "bookmark",
                           label: "Bookmark", tooltip: "Bookmark this position",
                           action: #selector(addBookmark(_:)))
+
+        case .taskFilter:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let button = NSPopUpButton(frame: .zero, pullsDown: true)
+            button.bezelStyle = .toolbar
+            button.imagePosition = .imageOnly
+            let menu = NSMenu()
+            let icon = NSMenuItem()
+            icon.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Tasks")
+            menu.addItem(icon)
+            let all = NSMenuItem(title: "Show Everything",
+                                 action: #selector(clearTaskFilter(_:)), keyEquivalent: "")
+            all.target = self
+            menu.addItem(all)
+            menu.addItem(.separator())
+            for state in Checkbox.State.allCases {
+                let entry = NSMenuItem(title: "Only \(state.title)",
+                                       action: #selector(toggleTaskFilter(_:)), keyEquivalent: "")
+                entry.representedObject = state.rawValue
+                entry.target = self
+                menu.addItem(entry)
+            }
+            button.menu = menu
+            taskFilterButton = button
+            item.view = button
+            item.label = "Tasks"
+            item.toolTip = "Show only task items"
+            return item
 
         case .search:
             let item = NSToolbarItem(itemIdentifier: identifier)

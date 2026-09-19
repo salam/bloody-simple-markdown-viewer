@@ -103,6 +103,9 @@ enum MainMenu {
             menu.addItem(.separator())
             add(menu, "Add Bookmark", #selector(AppCommands.addBookmark(_:)), "d")
             menu.addItem(.separator())
+            add(menu, "Show Everything", #selector(AppCommands.clearTaskFilter(_:)), "0",
+                [.command, .shift])
+            menu.addItem(.separator())
             add(menu, "Actual Size", #selector(AppCommands.resetZoom(_:)), "0")
             add(menu, "Zoom In", #selector(AppCommands.zoomIn(_:)), "+")
             add(menu, "Zoom Out", #selector(AppCommands.zoomOut(_:)), "-")
@@ -152,6 +155,7 @@ enum MainMenu {
     func zoomOut(_ sender: Any?)
     func resetZoom(_ sender: Any?)
     func addBookmark(_ sender: Any?)
+    func clearTaskFilter(_ sender: Any?)
     func makeDefaultMarkdownApp(_ sender: Any?)
     func showSyntaxGuide(_ sender: Any?)
     func openProjectPage(_ sender: Any?)

@@ -18,17 +18,22 @@ public final class DocumentRenderer {
     public func render(source: String) -> RenderedDocument {
         let split = Frontmatter.split(source)
         let lineIndex = LineIndex(source: source)
+        // Math comes out before cmark sees the text: it has no idea what a
+        // formula is and would turn the underscores in `$a_i b_j$` into
+        // emphasis, corrupting it.
+        let math = MathExtractor.extract(from: split.body)
         // Source locations come back relative to the body, so shift them past
         // any frontmatter we removed.
         let bodyStartByte = LineIndex(source: source).utf8Offset(line: split.bodyLineOffset + 1, column: 1)
 
-        let document = Document(parsing: split.body, options: [])
+        let document = Document(parsing: math.text, options: [])
         var visitor = AttributedStringVisitor(
             theme: theme,
             baseURL: baseURL,
             bodyLineOffset: split.bodyLineOffset,
             bodyStartByte: bodyStartByte,
-            lineIndex: lineIndex
+            lineIndex: lineIndex,
+            mathSpans: math.spans
         )
         let text = visitor.visit(document)
         let trimmed = NSMutableAttributedString(attributedString: text)
@@ -80,18 +85,21 @@ struct AttributedStringVisitor: MarkupVisitor {
     let bodyLineOffset: Int
     let bodyStartByte: Int
     let lineIndex: LineIndex
+    let mathSpans: [MathSpan]
 
     var outline: [OutlineEntry] = []
     private var usedAnchors: Set<String> = []
     private var quoteDepth = 0
     private var listDepth = 0
 
-    init(theme: Theme, baseURL: URL?, bodyLineOffset: Int, bodyStartByte: Int, lineIndex: LineIndex) {
+    init(theme: Theme, baseURL: URL?, bodyLineOffset: Int, bodyStartByte: Int,
+         lineIndex: LineIndex, mathSpans: [MathSpan]) {
         self.theme = theme
         self.baseURL = baseURL
         self.bodyLineOffset = bodyLineOffset
         self.bodyStartByte = bodyStartByte
         self.lineIndex = lineIndex
+        self.mathSpans = mathSpans
     }
 
     // MARK: Source mapping
@@ -282,6 +290,21 @@ struct AttributedStringVisitor: MarkupVisitor {
         var code = codeBlock.code
         if code.hasSuffix("\n") { code.removeLast() }
 
+        // GitHub renders a ```math fence as display math.
+        if codeBlock.language?.lowercased() == "math" {
+            let attachment = MathTextAttachment(latex: code, isDisplay: true, theme: theme)
+            if !attachment.failed {
+                let out = NSMutableAttributedString(attachment: attachment)
+                out.addAttributes([
+                    .paragraphStyle: paragraphStyle(spacingBefore: 8, spacingAfter: 12),
+                    .sourceOffset: sourceOffset(of: codeBlock),
+                    .spokenDescription: code
+                ], range: NSRange(location: 0, length: out.length))
+                out.append(newline(after: codeBlock))
+                return out
+            }
+        }
+
         let highlighted = NSMutableAttributedString(
             attributedString: SyntaxHighlighter.highlight(code, language: codeBlock.language, theme: theme)
         )
@@ -387,16 +410,6 @@ struct AttributedStringVisitor: MarkupVisitor {
             let markerIndent = CGFloat(listDepth) * 24
             let textIndent = markerIndent + 26
 
-            let marker: String
-            if let checkbox = item.checkbox {
-                marker = checkbox == .checked ? "\u{2611}" : "\u{2610}"
-            } else if ordered {
-                marker = "\(number)."
-                number += 1
-            } else {
-                marker = bullets[min(listDepth, bullets.count - 1)]
-            }
-
             let itemBody = NSMutableAttributedString()
             listDepth = outerDepth + 1
             for grandchild in item.children {
@@ -404,6 +417,32 @@ struct AttributedStringVisitor: MarkupVisitor {
             }
             listDepth = outerDepth
 
+            // cmark only reports [ ] and [x] as task items. Anything else, a
+            // tick emoji, [OK], [DONE], reaches us as plain leading text, so
+            // detect it here and strip the marker from what is shown.
+            var extendedState: Checkbox.State?
+            if item.checkbox == nil,
+               let found = Checkbox.parseLeadingMarker(in: itemBody.string) {
+                extendedState = found.state
+                itemBody.deleteCharacters(in: NSRange(location: 0, length: found.consumed))
+            }
+
+            let marker: String
+            var taskState: Checkbox.State?
+            if let checkbox = item.checkbox {
+                marker = Checkbox.glyph(for: checkbox == .checked ? .checked : .unchecked)
+                taskState = checkbox == .checked ? .checked : .unchecked
+            } else if let extendedState {
+                marker = Checkbox.glyph(for: extendedState)
+                taskState = extendedState
+            } else if ordered {
+                marker = "\(number)."
+                number += 1
+            } else {
+                marker = bullets[min(listDepth, bullets.count - 1)]
+            }
+
+            let isTask = taskState != nil
             let style = paragraphStyle(spacingAfter: 4)
             let quoteIndent = CGFloat(quoteDepth) * 18
             style.firstLineHeadIndent = markerIndent + quoteIndent
@@ -413,12 +452,16 @@ struct AttributedStringVisitor: MarkupVisitor {
 
             let markerAttrs: [NSAttributedString.Key: Any] = [
                 .font: theme.bodyFont,
-                .foregroundColor: item.checkbox != nil ? theme.textColor : theme.secondaryTextColor,
+                .foregroundColor: taskState == .inProgress
+                    ? theme.alertTint(for: .warning)
+                    : (isTask ? theme.textColor : theme.secondaryTextColor),
                 .paragraphStyle: style,
                 .listDepth: listDepth + 1,
                 .sourceOffset: sourceOffset(of: item)
             ]
-            let line = NSMutableAttributedString(string: marker + "\t", attributes: markerAttrs)
+            var taskAttributes = markerAttrs
+            if let taskState { taskAttributes[.taskState] = taskState.rawValue }
+            let line = NSMutableAttributedString(string: marker + "\t", attributes: taskAttributes)
             line.append(itemBody)
             // Apply to this item's own paragraphs only. Content that already
             // carries a list style belongs to a nested list and keeps its own
@@ -431,6 +474,9 @@ struct AttributedStringVisitor: MarkupVisitor {
             for plain in plainRanges {
                 line.addAttribute(.paragraphStyle, value: style, range: plain)
                 line.addAttribute(.listDepth, value: listDepth + 1, range: plain)
+                if let taskState {
+                    line.addAttribute(.taskState, value: taskState.rawValue, range: plain)
+                }
             }
             out.append(line)
         }
@@ -484,8 +530,45 @@ struct AttributedStringVisitor: MarkupVisitor {
     // MARK: Inlines
 
     mutating func visitText(_ text: Text) -> NSAttributedString {
-        NSAttributedString(string: Emoji.substitute(in: text.string),
-                           attributes: baseAttributes(for: text))
+        let attributes = baseAttributes(for: text)
+        let pieces = MathExtractor.split(text.string)
+        guard pieces.contains(where: { if case .math = $0 { return true }; return false }) else {
+            return NSAttributedString(string: Emoji.substitute(in: text.string), attributes: attributes)
+        }
+
+        let out = NSMutableAttributedString()
+        for piece in pieces {
+            switch piece {
+            case .text(let literal):
+                out.append(NSAttributedString(string: Emoji.substitute(in: literal),
+                                              attributes: attributes))
+            case .math(let index):
+                guard index < mathSpans.count else { continue }
+                out.append(mathAttachment(for: mathSpans[index], attributes: attributes))
+            }
+        }
+        return out
+    }
+
+    /// A formula, or its source in monospace when it will not parse. A viewer
+    /// must never silently swallow something it cannot draw.
+    private func mathAttachment(for span: MathSpan,
+                                attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        let attachment = MathTextAttachment(latex: span.latex, isDisplay: span.isDisplay, theme: theme)
+        if attachment.failed {
+            var fallback = attributes
+            fallback[.font] = theme.monoFont
+            fallback[.foregroundColor] = theme.secondaryTextColor
+            fallback[.backgroundColor] = theme.codeBackground
+            return NSAttributedString(string: span.latex, attributes: fallback)
+        }
+        let out = NSMutableAttributedString(attachment: attachment)
+        let full = NSRange(location: 0, length: out.length)
+        out.addAttributes(attributes, range: full)
+        // VoiceOver sees a drawn formula as nothing at all; the source is the label.
+        out.addAttribute(.spokenDescription, value: span.latex, range: full)
+        out.addAttribute(.toolTip, value: span.latex, range: full)
+        return out
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) -> NSAttributedString {

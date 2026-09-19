@@ -8,12 +8,17 @@ let package = Package(
         .library(name: "MarkdownCore", targets: ["MarkdownCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "main")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "main"),
+        .package(url: "https://github.com/PhraseHQ/SwaTex.git", exact: "0.5.0")
     ],
     targets: [
         .target(
             name: "MarkdownCore",
-            dependencies: [.product(name: "Markdown", package: "swift-markdown")],
+            dependencies: [
+                .product(name: "Markdown", package: "swift-markdown"),
+                .product(name: "SwaTex", package: "SwaTex"),
+                .product(name: "SwaTexRender", package: "SwaTex")
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

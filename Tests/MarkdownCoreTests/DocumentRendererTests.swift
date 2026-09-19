@@ -199,10 +199,8 @@ struct DocumentRendererTests {
         #expect(render("    indented\n").attributedString.string.contains("indented"))
     }
 
-    @Test func keepsMathAndMermaidSourceVisibleForNow() {
-        // Phase 5 renders these properly; until then nothing may be lost.
+    @Test func keepsMermaidSourceVisibleUntilItIsRendered() {
         #expect(render("```mermaid\ngraph TD\nA-->B\n```\n").attributedString.string.contains("graph TD"))
-        #expect(render("```math\nE = mc^2\n```\n").attributedString.string.contains("E = mc^2"))
     }
 
     // MARK: Tables

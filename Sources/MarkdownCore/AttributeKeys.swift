@@ -12,6 +12,12 @@ public extension NSAttributedString.Key {
     static let headingLevel = NSAttributedString.Key("MarkdownCore.headingLevel")
     /// Marks a run as being inside a fenced or indented code block.
     static let codeBlock = NSAttributedString.Key("MarkdownCore.codeBlock")
+    /// Spoken description for content that is drawn rather than written, such
+    /// as a LaTeX formula, which a screen reader would otherwise find empty.
+    static let spokenDescription = NSAttributedString.Key("MarkdownCore.spokenDescription")
+    /// Raw value of a `Checkbox.State` on a task list item, used by the task
+    /// filter to show only the states the reader cares about.
+    static let taskState = NSAttributedString.Key("MarkdownCore.taskState")
     /// List nesting depth, 1 or greater.
     ///
     /// Used instead of `NSParagraphStyle.textLists` because setting `textLists`
