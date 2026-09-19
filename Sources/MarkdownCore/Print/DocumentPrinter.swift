@@ -90,6 +90,9 @@ public enum DocumentPrinter {
         theme.quoteBarColor = NSColor(white: 0.6, alpha: 1)
         theme.baseFontSize = 11
         theme.readingWidth = .greatestFiniteMagnitude
+        // Paper is white, so diagrams take the light palette whatever the
+        // screen is set to.
+        theme.isDarkBackground = false
         return theme
     }
 

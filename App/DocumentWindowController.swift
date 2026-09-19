@@ -108,7 +108,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
 
     func load(document: MarkdownDocument) {
         refresh()
+        appearanceObserver = window?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.refresh() }
+        }
     }
+
+    private var appearanceObserver: NSKeyValueObservation?
 
     /// Re-applies the document to the view in whichever mode is current.
     func refresh() {
@@ -142,7 +147,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     private func themeForCurrentZoom() -> Theme {
         var theme = Theme.system
         theme.baseFontSize = max(9, min(30, 14 + CGFloat(zoomStep)))
+        // Resolve against this window rather than the app, so a window forced
+        // to one appearance still renders diagrams to match.
+        if let appearance = window?.effectiveAppearance {
+            theme.isDarkBackground = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
         return theme
+    }
+
+    /// Diagrams bake in their palette, so switching light and dark has to
+    /// re-render rather than just recolour.
+    func windowDidChangeBackingProperties(_ notification: Notification) {
+        refresh()
     }
 
     // MARK: Source toggle

@@ -199,8 +199,15 @@ struct DocumentRendererTests {
         #expect(render("    indented\n").attributedString.string.contains("indented"))
     }
 
-    @Test func keepsMermaidSourceVisibleUntilItIsRendered() {
-        #expect(render("```mermaid\ngraph TD\nA-->B\n```\n").attributedString.string.contains("graph TD"))
+    @Test func rendersMermaidRatherThanShowingItsSource() {
+        let doc = render("```mermaid\ngraph TD\nA-->B\n```\n")
+        var found = false
+        doc.attributedString.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: doc.attributedString.length)
+        ) { value, _, _ in
+            if value is MermaidTextAttachment { found = true }
+        }
+        #expect(found)
     }
 
     // MARK: Tables

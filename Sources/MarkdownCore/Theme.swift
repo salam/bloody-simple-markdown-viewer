@@ -43,8 +43,25 @@ public struct Theme: Sendable {
     public var codeBackground: NSColor
     public var quoteBarColor: NSColor
     public var ruleColor: NSColor
+    /// Whether the document is drawn on a dark background.
+    ///
+    /// Held explicitly rather than inferred from a dynamic colour: resolving
+    /// `.labelColor` outside a drawing context gives whichever appearance
+    /// happens to be current, which is not necessarily the window's. Diagrams
+    /// pick their palette from this.
+    public var isDarkBackground: Bool
 
-    public static let system = Theme(
+    public static var system: Theme {
+        var theme = Theme.base
+        theme.isDarkBackground = Theme.systemPrefersDark
+        return theme
+    }
+
+    public static var systemPrefersDark: Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    static let base = Theme(
         baseFontSize: 14,
         readingWidth: 720,
         textColor: .labelColor,
@@ -52,7 +69,8 @@ public struct Theme: Sendable {
         linkColor: .linkColor,
         codeBackground: .quaternarySystemFill,
         quoteBarColor: .tertiaryLabelColor,
-        ruleColor: .separatorColor
+        ruleColor: .separatorColor,
+        isDarkBackground: false
     )
 
     public var bodyFont: NSFont { .systemFont(ofSize: baseFontSize) }

@@ -30,6 +30,12 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 - **Syntax-highlighted code** for sixteen common languages, with no embedded
   JavaScript engine.
 - **Emoji shortcodes**, `:rocket:` and the rest.
+- **LaTeX math**, rendered natively on the text baseline. Both GitHub's dollar
+  delimiters and the backslash form ChatGPT emits.
+- **Mermaid diagrams**, drawn natively, following light and dark mode.
+- **Task states beyond GitHub's two.** `[x]`, `[✅]`, `[OK]` and `[DONE]` all
+  mean done; `[~]`, `[WIP]` and `[in progress]` mean started. Filter the
+  document to just the states you care about.
 - **Tabs that follow intent.** Files opened together share one window with tabs.
   A file opened on its own gets its own window. Drop a file on a window and it
   joins that window; drop it on the Dock icon and it opens a new one.
@@ -111,25 +117,32 @@ The full design is in
 
 ## Not yet
 
-LaTeX math and Mermaid diagrams currently render as styled code blocks showing
-their source, so nothing in your file is lost. Both will be rendered natively,
-with no web view: [SwaTex](https://github.com/PhraseHQ/SwaTex) passes 129 of
-130 common KaTeX commands at roughly 0.1 ms per formula, and
-[swift-mermaid](https://github.com/Australware/swift-mermaid) covers flowchart,
-sequence, state, class, ER and pie diagrams, which is most of what these tools
-produce. Diagram types it cannot draw will keep falling back to their source.
+A Quick Look extension, so Markdown previews render in Finder. Preview.app
+itself cannot be extended: its document types are a fixed list and it consumes
+no extension point.
 
-A Quick Look extension is also planned, so Markdown previews render in Finder.
-Preview.app itself cannot be extended: its document types are a fixed list and
-it consumes no extension point.
+Mermaid covers flowchart, sequence, state, class, entity-relationship and pie
+diagrams, which is most of what these tools emit. Gantt charts, mindmaps and
+timelines are not supported yet and fall back to showing their source, so
+nothing in your file is ever lost.
 
 ## Dependencies
 
-One:
+Three, all permissively licensed, each behind a protocol so it can be swapped:
 
 | Package | Purpose | Licence |
 |---|---|---|
 | [swift-markdown](https://github.com/swiftlang/swift-markdown) | CommonMark and GFM parsing, via cmark-gfm | Apache 2.0 |
+| [SwaTex](https://github.com/PhraseHQ/SwaTex) | LaTeX typesetting, 129 of 130 common KaTeX commands | MIT |
+| [swift-mermaid](https://github.com/Australware/swift-mermaid) | Diagram rendering | MIT |
+
+Three defects in the diagram library are worked around rather than tolerated,
+all found by testing it rather than reading its documentation. A diagram header
+with no nodes yet produces an infinite size and crashes on rasterising, which a
+streamed response hits constantly. A subgraph nested inside another of the same
+name overflows the stack inside the library where it cannot be caught, so it is
+refused beforehand. And its layout is only deterministic on one thread, so every
+render is serialised.
 
 ## Licence
 

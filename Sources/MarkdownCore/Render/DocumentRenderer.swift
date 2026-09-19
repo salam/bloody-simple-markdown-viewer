@@ -297,6 +297,24 @@ struct AttributedStringVisitor: MarkupVisitor {
         var code = codeBlock.code
         if code.hasSuffix("\n") { code.removeLast() }
 
+        // GitHub renders a ```mermaid fence as a diagram. When the library
+        // cannot draw it, which covers gantt, mindmap and the rest of the long
+        // tail, fall through and show the source as a code block.
+        if codeBlock.language?.lowercased() == "mermaid" {
+            let attachment = MermaidTextAttachment(source: code, theme: theme,
+                                                   rendering: attachmentRendering)
+            if !attachment.failed {
+                let out = NSMutableAttributedString(attachment: attachment)
+                out.addAttributes([
+                    .paragraphStyle: paragraphStyle(spacingBefore: 8, spacingAfter: 12),
+                    .sourceOffset: sourceOffset(of: codeBlock),
+                    .spokenDescription: "Mermaid diagram"
+                ], range: NSRange(location: 0, length: out.length))
+                out.append(newline(after: codeBlock))
+                return out
+            }
+        }
+
         // GitHub renders a ```math fence as display math.
         if codeBlock.language?.lowercased() == "math" {
             let attachment = MathTextAttachment(latex: code, isDisplay: true,

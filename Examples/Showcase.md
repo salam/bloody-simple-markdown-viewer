@@ -127,3 +127,20 @@ $$
 $$
 
 ChatGPT's delimiters work too: \(x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}\)
+
+## Diagrams
+
+```mermaid
+graph LR
+    subgraph Parsing
+        MD[Markdown] --> AST[cmark-gfm]
+    end
+    subgraph Rendering
+        AST --> AS[Attributed String]
+        AS --> TK[TextKit 2]
+    end
+    TK -->|no web view| Screen[Screen]
+```
+
+Diagram types the renderer does not yet cover, such as Gantt charts, fall back
+to showing their source so nothing is ever lost.

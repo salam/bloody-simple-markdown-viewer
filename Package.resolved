@@ -1,5 +1,5 @@
 {
-  "originHash" : "a0f1046a82443a8f6ded826e4cb64fd806a47d105cb48e483eae1c6ba7727396",
+  "originHash" : "c010480bbb029723a2f50368dfa87435ac1ca65f949edba7fcbf0517b62a6932",
   "pins" : [
     {
       "identity" : "swatex",
@@ -26,6 +26,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "75e3df1d7b664ef3c96595de36c243b98599b3bc"
+      }
+    },
+    {
+      "identity" : "swift-mermaid",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Australware/swift-mermaid.git",
+      "state" : {
+        "revision" : "ee4b50bc15ad6e9b9f88bc320f2c42ba9a55a804",
+        "version" : "0.3.0"
       }
     }
   ],
