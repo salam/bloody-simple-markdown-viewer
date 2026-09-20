@@ -19,6 +19,17 @@ public final class DocumentRenderer {
     }
 
     public func render(source: String) -> RenderedDocument {
+        render(expanded: source, original: source, map: .identity)
+    }
+
+    /// Renders text that snippets have already been pulled into.
+    ///
+    /// `expanded` is what gets parsed; `original` is the file on disk, and what
+    /// every offset is reported against. Without the map the renderer would
+    /// hand out positions in a string that exists nowhere, and bookmarks,
+    /// source mode and ticking a checkbox would all address the wrong place.
+    public func render(expanded: String, original: String, map: SourceMap) -> RenderedDocument {
+        let source = expanded
         let split = Frontmatter.split(source)
         let lineIndex = LineIndex(source: source)
         // Math comes out before cmark sees the text: it has no idea what a
@@ -36,6 +47,7 @@ public final class DocumentRenderer {
             bodyLineOffset: split.bodyLineOffset,
             bodyStartByte: bodyStartByte,
             lineIndex: lineIndex,
+            sourceMap: map,
             mathSpans: math.spans,
             attachmentRendering: attachmentRendering
         )
@@ -46,8 +58,8 @@ public final class DocumentRenderer {
         return RenderedDocument(
             attributedString: trimmed,
             outline: resolveCharacterOffsets(visitor.outline, in: trimmed),
-            lineIndex: lineIndex,
-            source: source,
+            lineIndex: LineIndex(source: original),
+            source: original,
             frontmatter: split.frontmatter
         )
     }
@@ -89,6 +101,7 @@ struct AttributedStringVisitor: MarkupVisitor {
     let bodyLineOffset: Int
     let bodyStartByte: Int
     let lineIndex: LineIndex
+    let sourceMap: SourceMap
     let mathSpans: [MathSpan]
     let attachmentRendering: AttachmentRendering
 
@@ -98,23 +111,28 @@ struct AttributedStringVisitor: MarkupVisitor {
     private var listDepth = 0
 
     init(theme: Theme, baseURL: URL?, bodyLineOffset: Int, bodyStartByte: Int,
-         lineIndex: LineIndex, mathSpans: [MathSpan],
+         lineIndex: LineIndex, sourceMap: SourceMap, mathSpans: [MathSpan],
          attachmentRendering: AttachmentRendering) {
         self.theme = theme
         self.baseURL = baseURL
         self.bodyLineOffset = bodyLineOffset
         self.bodyStartByte = bodyStartByte
         self.lineIndex = lineIndex
+        self.sourceMap = sourceMap
         self.mathSpans = mathSpans
         self.attachmentRendering = attachmentRendering
     }
 
     // MARK: Source mapping
 
+    /// Answers in offsets into the file on disk, not into the text that was
+    /// parsed. The two differ exactly when snippets were pulled in, and the
+    /// single conversion lives here so nothing downstream has to know.
     private func sourceOffset(of markup: Markup) -> Int {
-        guard let range = markup.range else { return bodyStartByte }
-        return lineIndex.utf8Offset(line: range.lowerBound.line + bodyLineOffset,
-                                    column: range.lowerBound.column)
+        guard let range = markup.range else { return sourceMap.originalOffset(for: bodyStartByte) }
+        let expanded = lineIndex.utf8Offset(line: range.lowerBound.line + bodyLineOffset,
+                                            column: range.lowerBound.column)
+        return sourceMap.originalOffset(for: expanded)
     }
 
     private func baseAttributes(for markup: Markup) -> [NSAttributedString.Key: Any] {

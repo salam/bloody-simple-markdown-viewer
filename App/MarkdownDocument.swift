@@ -18,6 +18,13 @@ final class MarkdownDocument: NSDocument {
     /// construction, so the highlights last exactly as long as the window does.
     private(set) var changes = ChangeTracker()
 
+    /// The source with snippets pulled in. Equal to `source` for the usual
+    /// document, which has none. Printing and PDF export render from this;
+    /// everything that addresses a position uses `source`.
+    private(set) var expandedSource: String = ""
+    /// Files this document pulls in, so a change to one of them is noticed too.
+    private(set) var snippetFiles: [URL] = []
+
     override class var autosavesInPlace: Bool { false }
 
     override func makeWindowControllers() {
@@ -53,8 +60,18 @@ final class MarkdownDocument: NSDocument {
     }
 
     func rerender() {
-        rendered = DocumentRenderer(theme: theme, baseURL: fileURL).render(source: source)
+        let resolved = SnippetResolver.expand(source: source, baseURL: fileURL) { url in
+            FolderAccess.shared.read(url)
+        }
+        expandedSource = resolved.text
+        snippetFiles = resolved.referenced
+        rendered = DocumentRenderer(theme: theme, baseURL: fileURL)
+            .render(expanded: resolved.text, original: source, map: resolved.map)
     }
+
+    /// True when this document asks for other files, without reading any of
+    /// them. The window checks before deciding whether to ask for the folder.
+    var needsSnippetAccess: Bool { SnippetResolver.containsDirectives(source) }
 
     // MARK: Printing
 
@@ -66,7 +83,9 @@ final class MarkdownDocument: NSDocument {
         for (key, value) in printSettings {
             info.dictionary()[key] = value
         }
-        return DocumentPrinter.operation(source: source,
+        // Printed from the expanded text: a snippet is part of the document as
+        // far as the page is concerned.
+        return DocumentPrinter.operation(source: expandedSource,
                                          title: displayName ?? "Document",
                                          baseURL: fileURL,
                                          printInfo: info)
@@ -83,7 +102,7 @@ final class MarkdownDocument: NSDocument {
 
         let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let self, let url = panel.url else { return }
-            DocumentPrinter.writePDF(source: self.source,
+            DocumentPrinter.writePDF(source: self.expandedSource,
                                      title: self.displayName ?? "Document",
                                      baseURL: self.fileURL,
                                      to: url)

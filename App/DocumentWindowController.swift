@@ -135,6 +135,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func load(document: MarkdownDocument) {
+        // Asked once per folder, and only for a document that actually pulls
+        // other files in. The sandbox grants this app the one file it was
+        // opened with and nothing beside it.
+        if document.needsSnippetAccess, let url = document.fileURL {
+            FolderAccess.shared.requestAccessIfNeeded(forDocumentAt: url, in: window)
+        }
         refresh()
         appearanceObserver = window?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async { self?.refresh() }
