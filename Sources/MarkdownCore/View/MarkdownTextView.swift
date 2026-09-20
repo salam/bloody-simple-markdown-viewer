@@ -119,7 +119,13 @@ public final class MarkdownTextView: NSTextView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // The first real layout pass can only happen once there is a window.
-        guard window != nil else { return }
+        guard let window else { return }
+        // Hover drives the code block's copy button. Relying on AppKit to call
+        // updateTrackingAreas on its own schedule is one dependency too many
+        // for a control that is invisible until it works, so the area is
+        // installed here as well, and the window is told to deliver the events.
+        window.acceptsMouseMovedEvents = true
+        updateTrackingAreas()
         DispatchQueue.main.async { [weak self] in
             self?.refreshViewport()
         }
