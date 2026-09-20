@@ -79,6 +79,12 @@ instead, and fill the bitmap opaque first: a fresh one is transparent, and text
 drawn in black at varying alpha comes back with identical RGB in every pixel.
 `SnapshotTests.render(_:)` does both.
 
+`presentedItemDidChange` coalesces. Two external writes 600 ms apart arrive as
+one callback; 2.5 s apart they arrive as two. Verified by probe. The change
+tracker is built on that assumption — it diffs the last known text against
+what is on disk now, so a coalesced burst is reported in full under a single
+timestamp rather than partly lost.
+
 `make` regenerates the Xcode project when any source file or directory changes,
 not only when `project.yml` does. Without that a new file builds for whoever
 added it, from their own incremental project, and is missing for everyone else.
