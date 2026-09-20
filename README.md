@@ -35,7 +35,12 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
 - **Mermaid diagrams**, drawn natively, following light and dark mode.
 - **Task states beyond GitHub's two.** `[x]`, `[✅]`, `[OK]` and `[DONE]` all
   mean done; `[~]`, `[WIP]` and `[in progress]` mean started. Filter the
-  document to just the states you care about.
+  document to just the states you care about, in the render or in the source.
+- **Tick a box by clicking it.** The only edit the rendered view makes, and it
+  goes straight into the Markdown. Option-click cycles open, in progress and
+  done. The marker follows whatever spelling the file already uses, so a
+  document written in `[✅]` stays written in `[✅]`.
+- **Copy a code block** from the button that appears when you hover it.
 - **Tabs that follow intent.** Files opened together share one window with tabs.
   A file opened on its own gets its own window. Drop a file on a window and it
   joins that window; drop it on the Dock icon and it opens a new one.
@@ -43,7 +48,8 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
   and a live match count.
 - **Outline** of the document's headings, and **bookmarks** that survive the
   file being edited, moved or renamed.
-- **Source mode.** Toggle to the raw Markdown, edit it, and save.
+- **Source mode.** Toggle to the raw Markdown, edit it, and save. Double-click
+  anywhere in the render to land on the matching line.
 - **Finder previews.** Press space on a Markdown file and it renders.
 - **Print and export to PDF.** Paginated, with a running head and page numbers,
   as selectable text rather than a picture of text. Tables, code and formulas

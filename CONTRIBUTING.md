@@ -36,6 +36,13 @@ path never instantiates attachment views. If you add a construct that hosts a
 view, give it a flattened branch that produces an image, or it will silently
 vanish from printed output and PDFs.
 
+**A derived view of the document is never editable.** The task filter shows a
+subset of the file. The source view writes what it holds back to the document
+on every change, on the mode toggle and on close. Filtered source is therefore
+read-only, gated on one `isSourceEditable` check rather than three scattered
+`isShowingSource` checks, because letting any of those paths run against a
+filtered view would save the subset over the file and delete every hidden line.
+
 **XcodeGen's `info:` and `entitlements:` blocks generate files.** They will
 overwrite a hand-written `Info.plist` or entitlements file, and the result is an
 app with no file associations or an extension that never loads. Both are
@@ -51,6 +58,17 @@ land. Add tests at that level when you change layout.
 A headless test process cannot instantiate `NSTextAttachmentViewProvider`
 views, so attachment rendering needs either a real window or a check of the
 ingredients. Both patterns are in the test suite.
+
+`NSView.cacheDisplay(in:to:)` needs a window-backed context. Called on a
+detached view it returns a blank canvas and reports no error, so a snapshot
+assertion passes against nothing. Draw through an explicit `NSGraphicsContext`
+instead, and fill the bitmap opaque first: a fresh one is transparent, and text
+drawn in black at varying alpha comes back with identical RGB in every pixel.
+`SnapshotTests.render(_:)` does both.
+
+`make` regenerates the Xcode project when any source file or directory changes,
+not only when `project.yml` does. Without that a new file builds for whoever
+added it, from their own incremental project, and is missing for everyone else.
 
 ## Style
 

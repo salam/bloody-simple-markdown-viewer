@@ -31,7 +31,12 @@ test:
 
 project: $(PROJECT)
 
-$(PROJECT): project.yml
+# Directories are listed as well as files: adding or deleting a source changes
+# the containing directory's timestamp, and without that a new file builds fine
+# for whoever wrote it and is missing for everybody else.
+SOURCES := $(shell find App QuickLookExtension Sources -name '*.swift' -o -type d)
+
+$(PROJECT): project.yml $(SOURCES)
 	@command -v xcodegen >/dev/null || { echo "XcodeGen is required: brew install xcodegen"; exit 1; }
 	xcodegen generate
 

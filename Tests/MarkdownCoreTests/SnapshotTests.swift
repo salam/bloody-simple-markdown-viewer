@@ -14,6 +14,43 @@ struct TableRenderingSnapshotTests {
     static let outputDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("markdown-snapshots")
 
+    /// Draws a view into a bitmap through an explicit context.
+    ///
+    /// Not `cacheDisplay(in:to:)`: that needs a window-backed context, and in a
+    /// headless `swift test` run it returns a blank canvas with no error, so
+    /// the snapshot silently measures nothing.
+    private static func render(_ view: NSView) -> NSBitmapImageRep? {
+        let size = view.bounds.size
+        guard size.width >= 1, size.height >= 1,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(size.width.rounded()),
+                                         pixelsHigh: Int(size.height.rounded()),
+                                         bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        // Opaque white first. A fresh bitmap is transparent, and the table
+        // draws in black at varying alpha, so every pixel would come back with
+        // identical RGB and the snapshot would read as blank.
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        if view.isFlipped {
+            // The view draws y-down; a bitmap context is y-up.
+            let flip = NSAffineTransform()
+            flip.translateX(by: 0, yBy: size.height)
+            flip.scaleX(by: 1, yBy: -1)
+            flip.concat()
+        }
+        view.draw(view.bounds)
+        context.flushGraphics()
+        return rep
+    }
+
     private static func write(_ rep: NSBitmapImageRep, named name: String) {
         try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         if let data = rep.representation(using: .png, properties: [:]) {
@@ -34,11 +71,10 @@ struct TableRenderingSnapshotTests {
     @Test func tableViewDrawsItsContent() {
         let attachment = TableTextAttachment(model: Self.sampleModel, theme: .system)
         let view = attachment.makeContainerView()
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        guard let rep = Self.render(view) else {
             Issue.record("no bitmap")
             return
         }
-        view.cacheDisplay(in: view.bounds, to: rep)
         Self.write(rep, named: "table-view")
 
         // The drawn table must differ from a blank canvas across many rows.

@@ -18,6 +18,11 @@ public final class MarkdownTextView: NSTextView {
     /// and reveals that position.
     public var onJumpToSource: ((Int) -> Void)?
 
+    /// Called when the reader clicks a checkbox in the rendered document, with
+    /// the UTF-8 source offset of its list item and the state it should become.
+    /// The host rewrites the marker in the source and re-renders.
+    public var onToggleTask: ((Int, Checkbox.State) -> Void)?
+
     private static let acceptedExtensions: Set<String> = [
         "md", "markdown", "mdown", "mkd", "mkdn", "mdwn", "mdtext", "mdx", "qmd", "rmd", "txt"
     ]
@@ -88,6 +93,7 @@ public final class MarkdownTextView: NSTextView {
 
     public func display(_ document: RenderedDocument) {
         textStorage?.setAttributedString(document.attributedString)
+        hideCopyButton()
         refreshViewport()
     }
 
@@ -105,6 +111,9 @@ public final class MarkdownTextView: NSTextView {
         layoutManager.textViewportLayoutController.layoutViewport()
         needsLayout = true
         needsDisplay = true
+        // Which checkboxes are laid out has just changed, and cursor rects are
+        // only recomputed on request.
+        window?.invalidateCursorRects(for: self)
     }
 
     public override func viewDidMoveToWindow() {
@@ -119,6 +128,7 @@ public final class MarkdownTextView: NSTextView {
     /// Shows a derived view of the document, such as the task filter's output.
     public func displayFiltered(_ text: NSAttributedString) {
         textStorage?.setAttributedString(text)
+        hideCopyButton()
         refreshViewport()
     }
 
@@ -133,6 +143,7 @@ public final class MarkdownTextView: NSTextView {
             }()
         ]
         textStorage?.setAttributedString(NSAttributedString(string: source, attributes: attrs))
+        hideCopyButton()
         refreshViewport()
     }
 
@@ -146,6 +157,18 @@ public final class MarkdownTextView: NSTextView {
     /// before `super` is what stops AppKit from opening the URL on the second
     /// click of a double-click.
     public override func mouseDown(with event: NSEvent) {
+        // A checkbox is a control, so it answers on the way down and swallows
+        // the event. Letting it through would start a text selection drag from
+        // inside the thing that was just clicked.
+        if !isEditable, event.clickCount == 1,
+           let hit = checkbox(at: convert(event.locationInWindow, from: nil)) {
+            let next = event.modifierFlags.contains(.option)
+                ? TaskToggle.cycled(hit.state)
+                : TaskToggle.ticked(hit.state)
+            onToggleTask?(hit.sourceOffset, next)
+            return
+        }
+
         guard event.clickCount == 2, !isEditable, let onJumpToSource else {
             super.mouseDown(with: event)
             return
@@ -290,6 +313,232 @@ public final class MarkdownTextView: NSTextView {
             }
             return true
         }
+    }
+
+    // MARK: Checkboxes
+
+    /// Frame of a storage range in view coordinates, or nil when it is not laid
+    /// out. Public so tests can assert on where things actually landed rather
+    /// than on what the attributed string claims.
+    public func boundingRect(for range: NSRange) -> NSRect? {
+        guard let layoutManager = textLayoutManager,
+              let textRange = self.textRange(from: range) else { return nil }
+        var union: NSRect?
+        layoutManager.enumerateTextSegments(in: textRange, type: .standard,
+                                            options: [.rangeNotRequired]) { _, frame, _, _ in
+            union = union.map { $0.union(frame) } ?? frame
+            return true
+        }
+        guard var rect = union else { return nil }
+        rect.origin.x += textContainerInset.width
+        rect.origin.y += textContainerInset.height
+        return rect
+    }
+
+    /// The checkbox under a point, if the point is on the glyph itself.
+    ///
+    /// Only the glyph is a control. The rest of the line stays ordinary
+    /// selectable text, so dragging across a checklist still selects it.
+    public func checkbox(at point: NSPoint) -> (sourceOffset: Int, state: Checkbox.State)? {
+        guard !isEditable, let storage = textStorage, storage.length > 0 else { return nil }
+        let index = min(max(characterIndexForInsertion(at: point), 0), storage.length - 1)
+        let paragraph = (storage.string as NSString)
+            .paragraphRange(for: NSRange(location: index, length: 0))
+        guard let hit = checkboxGlyph(atParagraphStart: paragraph.location, in: storage),
+              hit.rect.insetBy(dx: -4, dy: -2).contains(point) else { return nil }
+        return (hit.sourceOffset, hit.state)
+    }
+
+    /// Reads the checkbox a paragraph opens with.
+    ///
+    /// The glyph comparison is load-bearing: continuation paragraphs indented
+    /// under a task item inherit its `taskState`, so the attribute alone would
+    /// turn the first character of every such paragraph into a checkbox.
+    private func checkboxGlyph(atParagraphStart location: Int, in storage: NSTextStorage)
+        -> (rect: NSRect, sourceOffset: Int, state: Checkbox.State)? {
+        guard location < storage.length,
+              let raw = storage.attribute(.taskState, at: location, effectiveRange: nil) as? String,
+              let state = Checkbox.State(rawValue: raw),
+              let offset = storage.attribute(.sourceOffset, at: location, effectiveRange: nil) as? Int
+        else { return nil }
+        let glyphRange = NSRange(location: location, length: 1)
+        guard (storage.string as NSString).substring(with: glyphRange) == Checkbox.glyph(for: state),
+              let rect = boundingRect(for: glyphRange) else { return nil }
+        return (rect, offset, state)
+    }
+
+    /// A pointing hand over every checkbox, so it reads as something to click.
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        guard onToggleTask != nil, !isEditable else { return }
+        forEachVisibleCheckbox { rect, _, _ in
+            addCursorRect(rect.insetBy(dx: -2, dy: -1), cursor: .pointingHand)
+        }
+    }
+
+    private func forEachVisibleCheckbox(_ body: (NSRect, Int, Checkbox.State) -> Void) {
+        guard let layoutManager = textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              let storage = textStorage, storage.length > 0 else { return }
+        let target = visibleRect
+        let inset = textContainerInset
+        // Starts at the viewport, not at the document start. Enumerating from
+        // the start with `.ensuresLayout` would lay out everything above the
+        // viewport, and cursor rects are recomputed often enough that a 16 MB
+        // file scrolled to its end would pay for the whole document each time.
+        let start = layoutManager.textViewportLayoutController.viewportRange?.location
+            ?? layoutManager.documentRange.location
+        layoutManager.enumerateTextLayoutFragments(
+            from: start,
+            options: [.ensuresLayout, .estimatesSize]
+        ) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            let rect = NSRect(x: frame.minX + inset.width, y: frame.minY + inset.height,
+                              width: frame.width, height: frame.height)
+            guard rect.intersects(target) else { return rect.minY < target.maxY }
+            guard let range = fragment.rangeInElement.nsRange(in: contentManager),
+                  range.length > 0,
+                  let hit = self.checkboxGlyph(atParagraphStart: range.location, in: storage)
+            else { return true }
+            body(hit.rect, hit.sourceOffset, hit.state)
+            return true
+        }
+    }
+
+    // MARK: Copying code blocks
+
+    /// The block the copy button currently belongs to, with the band it sits
+    /// in. Cached because it is consulted on every mouse move, and recomputing
+    /// the band means walking the block's layout segments.
+    private var hoveredCodeBlock: (range: NSRange, band: NSRect)?
+    private var hoverTracking: NSTrackingArea?
+    private var copyResetWork: DispatchWorkItem?
+
+    /// Where a copied block goes. Injectable so tests do not clobber whatever
+    /// the person running them had on their clipboard.
+    var pasteboard: NSPasteboard = .general
+
+    private(set) lazy var copyButton: NSButton = {
+        let button = NSButton(title: "Copy", target: self, action: #selector(copyHoveredCodeBlock(_:)))
+        button.bezelStyle = .roundRect
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 10, weight: .medium)
+        button.imagePosition = .imageLeading
+        button.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        button.setAccessibilityLabel("Copy code block")
+        button.isHidden = true
+        return button
+    }()
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        // `.inVisibleRect` keeps the area in step with scrolling on its own, so
+        // the rect passed here is ignored.
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .mouseEnteredAndExited,
+                                            .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateCopyButton(at: convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hideCopyButton()
+    }
+
+    /// Moves the copy button to whichever code block the pointer is over, or
+    /// takes it away. Internal so tests can drive it without synthesising a
+    /// mouse-moved event.
+    func updateCopyButton(at point: NSPoint) {
+        guard !isEditable, let storage = textStorage, storage.length > 0 else {
+            hideCopyButton()
+            return
+        }
+        // Still inside the block the button already belongs to: nothing to do.
+        if let hovered = hoveredCodeBlock, !copyButton.isHidden, hovered.band.contains(point) {
+            return
+        }
+        guard let block = codeBlock(at: point, in: storage) else {
+            hideCopyButton()
+            return
+        }
+
+        hoveredCodeBlock = block
+        resetCopyButton()
+        let size = copyButton.frame.size
+        // Clamped to the viewport so the button stays reachable on a block that
+        // is taller than the window.
+        let top = max(block.band.minY, visibleRect.minY) + 6
+        copyButton.frame = NSRect(x: block.band.maxX - size.width - 10,
+                                  y: min(top, block.band.maxY - size.height - 4),
+                                  width: size.width, height: size.height)
+        if copyButton.superview == nil { addSubview(copyButton) }
+        copyButton.isHidden = false
+    }
+
+    /// The code block containing a point, and the band drawn behind it.
+    ///
+    /// The band, not the text extent, is the hover target: it is what the
+    /// reader sees as the block, and short lines would otherwise leave dead
+    /// space to the right of the very corner the button sits in.
+    private func codeBlock(at point: NSPoint, in storage: NSTextStorage) -> (range: NSRange, band: NSRect)? {
+        let index = min(max(characterIndexForInsertion(at: point), 0), storage.length - 1)
+        guard storage.attribute(.codeBlock, at: index, effectiveRange: nil) != nil else { return nil }
+
+        // Bounded rather than searched over the whole document: this runs on
+        // every mouse move, and a block longer than the window is already an
+        // outlier. A partial range only shifts where the button sits.
+        let window = NSRange(location: max(0, index - 100_000),
+                             length: min(storage.length, index + 100_000) - max(0, index - 100_000))
+        var range = NSRange(location: 0, length: 0)
+        guard storage.attribute(.codeBlock, at: index, longestEffectiveRange: &range, in: window) != nil,
+              let rect = boundingRect(for: range) else { return nil }
+
+        let column = textContainer?.size.width ?? rect.width
+        let band = NSRect(x: textContainerInset.width, y: rect.minY, width: column, height: rect.height)
+        return band.contains(point) ? (range, band) : nil
+    }
+
+    @objc func copyHoveredCodeBlock(_ sender: Any?) {
+        guard let block = hoveredCodeBlock, let storage = textStorage,
+              NSMaxRange(block.range) <= storage.length else { return }
+        // The block's range includes the thin spacer newlines that give the
+        // drawn band its padding; they are not part of the code.
+        let code = (storage.string as NSString).substring(with: block.range)
+            .trimmingCharacters(in: .newlines)
+        pasteboard.clearContents()
+        pasteboard.setString(code, forType: .string)
+
+        copyResetWork?.cancel()
+        copyButton.title = "Copied"
+        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
+        copyButton.sizeToFit()
+        let work = DispatchWorkItem { [weak self] in self?.resetCopyButton() }
+        copyResetWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
+    }
+
+    private func resetCopyButton() {
+        copyResetWork?.cancel()
+        copyResetWork = nil
+        copyButton.title = "Copy"
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        copyButton.sizeToFit()
+    }
+
+    private func hideCopyButton() {
+        hoveredCodeBlock = nil
+        copyResetWork?.cancel()
+        copyResetWork = nil
+        guard copyButton.superview != nil else { return }
+        copyButton.isHidden = true
     }
 
     // MARK: Dragging

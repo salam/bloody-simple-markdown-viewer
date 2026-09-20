@@ -8,6 +8,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     private var outlineScrollView: NSScrollView!
     private var outlineTable: NSTableView!
     private(set) var scrollView: MarkdownScrollView!
+    private var emptyStateView: TaskFilterEmptyView!
+    private var emptyStateTop: NSLayoutConstraint!
 
     // Toolbar controls, retained by the toolbar delegate as it builds them.
     var searchField: NSSearchField?
@@ -60,6 +62,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             self?.revealInSource(sourceOffset: sourceOffset)
         }
 
+        // Ticking a checkbox is the rendered view's whole editing model.
+        scrollView.markdownTextView.onToggleTask = { [weak self] sourceOffset, state in
+            self?.toggleTask(atSourceOffset: sourceOffset, to: state)
+        }
+
         scrollView.markdownTextView.onFileDrop = { [weak self] urls in
             guard let self,
                   let controller = NSDocumentController.shared as? DocumentController else { return }
@@ -104,6 +111,21 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             splitView.topAnchor.constraint(equalTo: contentView.topAnchor),
             splitView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
+
+        emptyStateView = TaskFilterEmptyView()
+        emptyStateView.translatesAutoresizingMaskIntoConstraints = false
+        emptyStateView.isHidden = true
+        emptyStateView.onShowEverything = { [weak self] in self?.clearTaskFilter(nil) }
+        contentView.addSubview(emptyStateView)
+        // Covers the document, not the sidebar, so the outline stays usable.
+        emptyStateTop = emptyStateView.topAnchor.constraint(equalTo: scrollView.topAnchor)
+        NSLayoutConstraint.activate([
+            emptyStateView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            emptyStateView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            emptyStateTop,
+            emptyStateView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor)
+        ])
+
         setOutlineVisible(false, animated: false)
     }
 
@@ -120,29 +142,59 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     func refresh() {
         guard let document = markdownDocument else { return }
         document.theme = themeForCurrentZoom()
-        if document.isShowingSource {
+        textView.theme = document.theme
+
+        let filtering = !taskFilterStates.isEmpty
+        // Source mode has no use for the render, except that the task filter
+        // reads its states off it, so it does need one then.
+        if filtering || !document.isShowingSource { document.rerender() }
+        let matches = filtering
+            ? TaskFilter.matchCount(in: document.rendered, states: taskFilterStates)
+            : 0
+
+        switch (document.isShowingSource, filtering) {
+        case (true, false):
             textView.displaySource(document.source, theme: document.theme)
-            textView.isEditable = true
-        } else {
-            document.rerender()
-            textView.theme = document.theme
-            if taskFilterStates.isEmpty {
-                textView.display(document.rendered)
-            } else {
-                // Filtered lines keep their source offsets, so double-clicking
-                // one still jumps to the right place in the real document.
-                textView.displayFiltered(
-                    TaskFilter.filtered(document.rendered,
-                                        states: taskFilterStates,
-                                        theme: document.theme))
-            }
-            textView.isEditable = false
+        case (true, true):
+            textView.displayFiltered(
+                TaskFilter.filteredSource(document.rendered,
+                                          states: taskFilterStates,
+                                          theme: document.theme))
+        case (false, true):
+            // Filtered lines keep their source offsets, so double-clicking
+            // one still jumps to the right place in the real document.
+            textView.displayFiltered(
+                TaskFilter.filtered(document.rendered,
+                                    states: taskFilterStates,
+                                    theme: document.theme))
+        case (false, false):
+            textView.display(document.rendered)
         }
+        textView.isEditable = isSourceEditable
+        setEmptyStateVisible(filtering && matches == 0)
+
         window?.title = document.displayName
         window?.tab.title = document.displayName
         outlineTable.reloadData()
         updateTaskFilterMenu()
         runSearch()
+    }
+
+    /// The source view is editable only when it shows the whole file. A
+    /// filtered source view is a subset of the document; writing it back would
+    /// delete every line the filter hid.
+    private var isSourceEditable: Bool {
+        (markdownDocument?.isShowingSource ?? false) && taskFilterStates.isEmpty
+    }
+
+    private func setEmptyStateVisible(_ visible: Bool) {
+        emptyStateView.isHidden = !visible
+        guard visible, let document = markdownDocument else { return }
+        // The scroll view insets itself below the titlebar; match that, or the
+        // message sits half a toolbar above the centre of what is on screen.
+        emptyStateTop.constant = scrollView.contentInsets.top
+        emptyStateView.update(states: taskFilterStates,
+                              showingSource: document.isShowingSource)
     }
 
     private func themeForCurrentZoom() -> Theme {
@@ -171,7 +223,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         let visible = textView.characterIndexForInsertion(at: scrollView.contentView.bounds.origin)
 
         if document.isShowingSource {
-            document.updateSource(textView.string)
+            if isSourceEditable { document.updateSource(textView.string) }
             document.isShowingSource = false
             refresh()
             scrollView.scrollToCharacterOffset(
@@ -187,7 +239,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     /// Switches to source mode and puts the caret at a source offset.
     func revealInSource(sourceOffset: Int) {
         guard let document = markdownDocument else { return }
-        if !document.isShowingSource {
+        // Jumping to source means the real line in the real file, so a filter
+        // hiding most of it has to come off first.
+        let wasFiltered = !taskFilterStates.isEmpty
+        taskFilterStates = []
+        if !document.isShowingSource || wasFiltered {
             document.isShowingSource = true
             refresh()
         }
@@ -253,8 +309,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             item.state = taskFilterStates.contains(state) ? .on : .off
             if let document = markdownDocument {
                 let count = TaskFilter.taskCount(in: document.rendered, state: state)
+                // Left selectable at zero on purpose: picking a state with no
+                // matches is how you find out there are none, and the empty
+                // state says so and offers the way back.
                 item.title = "Only \(state.title)  (\(count))"
-                item.isEnabled = count > 0
             }
         }
         // Make it obvious at a glance that a filter is on.
@@ -432,13 +490,45 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     // MARK: Editing
 
     func textDidChange(_ notification: Notification) {
-        guard let document = markdownDocument, document.isShowingSource else { return }
+        guard let document = markdownDocument, isSourceEditable else { return }
         document.updateSource(textView.string)
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let document = markdownDocument, document.isShowingSource else { return }
+        guard let document = markdownDocument, isSourceEditable else { return }
         document.updateSource(textView.string)
+    }
+
+    // MARK: Ticking checkboxes
+
+    /// Rewrites one checkbox marker in the source and re-renders.
+    ///
+    /// The rendered view is not an editor, so this is the one edit it can make.
+    /// It goes through the source rather than the attributed string, which is
+    /// why it cannot disturb anything else in the file.
+    private func toggleTask(atSourceOffset offset: Int, to state: Checkbox.State) {
+        guard let document = markdownDocument,
+              let updated = TaskToggle.apply(state, atSourceOffset: offset,
+                                             in: document.source) else { return }
+        document.undoManager?.setActionName("Tick Checkbox")
+        setSource(updated)
+    }
+
+    private func setSource(_ source: String) {
+        guard let document = markdownDocument, source != document.source else { return }
+        let previous = document.source
+        document.undoManager?.registerUndo(withTarget: self) { $0.setSource(previous) }
+        document.updateSource(source)
+        refreshPreservingScroll()
+    }
+
+    /// Re-renders and leaves the reader where they were. Ticking a box rebuilds
+    /// the whole attributed string, which otherwise throws the view to the top.
+    private func refreshPreservingScroll() {
+        let origin = scrollView.contentView.bounds.origin
+        refresh()
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     // MARK: Menu validation

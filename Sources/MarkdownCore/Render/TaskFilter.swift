@@ -23,18 +23,24 @@ public enum TaskFilter {
         paragraphs(in: document, states: [state]).count
     }
 
+    /// How many lines a filter would show. The window asks before filtering so
+    /// it can put up an empty state instead of an empty page.
+    public static func matchCount(in document: RenderedDocument,
+                                  states: Set<Checkbox.State>) -> Int {
+        paragraphs(in: document, states: states).count
+    }
+
     /// The document reduced to task lines in the given states.
-    /// An empty state set yields an empty document rather than everything.
+    ///
+    /// An empty state set yields an empty document rather than everything, and
+    /// no matches yields an empty one too. Saying so in body text would read
+    /// like a line the file actually contains, so the window draws that message
+    /// as chrome instead.
     public static func filtered(_ document: RenderedDocument,
                                 states: Set<Checkbox.State>,
                                 theme: Theme = .system) -> NSAttributedString {
         let ranges = paragraphs(in: document, states: states)
-        guard !ranges.isEmpty else {
-            return NSAttributedString(string: states.isEmpty
-                ? "No task states selected."
-                : "No matching tasks in this document.",
-                attributes: [.font: theme.bodyFont, .foregroundColor: theme.secondaryTextColor])
-        }
+        guard !ranges.isEmpty else { return NSAttributedString() }
 
         let out = NSMutableAttributedString()
         let source = document.attributedString
@@ -56,6 +62,58 @@ public enum TaskFilter {
             }
         }
         return out
+    }
+
+    /// The same filter applied to the Markdown source rather than the render.
+    ///
+    /// Lines come back verbatim, indentation and marker spelling included,
+    /// because the point of source mode is to show what the file actually says.
+    /// Each line keeps the `sourceOffset` of its real position, so the window
+    /// can still jump from a filtered line to the unfiltered one.
+    public static func filteredSource(_ document: RenderedDocument,
+                                      states: Set<Checkbox.State>,
+                                      theme: Theme = .system) -> NSAttributedString {
+        let ranges = paragraphs(in: document, states: states)
+        guard !ranges.isEmpty else { return NSAttributedString() }
+
+        let bytes = Array(document.source.utf8)
+        let rendered = document.attributedString
+        let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = 1.3
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: theme.monoFont,
+            .foregroundColor: theme.textColor,
+            .paragraphStyle: style
+        ]
+
+        let out = NSMutableAttributedString()
+        for range in ranges {
+            guard let offset = rendered.attribute(.sourceOffset, at: range.location,
+                                                  effectiveRange: nil) as? Int,
+                  let line = sourceLine(at: offset, in: bytes) else { continue }
+            let piece = NSMutableAttributedString(string: line.text + "\n", attributes: attributes)
+            piece.addAttribute(.sourceOffset, value: line.range.lowerBound,
+                               range: NSRange(location: 0, length: piece.length))
+            out.append(piece)
+        }
+        return out
+    }
+
+    /// The whole source line containing a UTF-8 byte offset, and where it starts.
+    ///
+    /// Scanning bytes rather than characters is deliberate: the offsets carried
+    /// through the render are UTF-8 byte offsets, and only the line feed can
+    /// appear as byte 0x0A, so a multi-byte character can never be mistaken for
+    /// a boundary.
+    static func sourceLine(at offset: Int, in bytes: [UInt8]) -> (text: String, range: Range<Int>)? {
+        guard !bytes.isEmpty else { return nil }
+        let probe = min(max(offset, 0), bytes.count - 1)
+        var start = probe
+        while start > 0, bytes[start - 1] != 0x0A { start -= 1 }
+        var end = probe
+        while end < bytes.count, bytes[end] != 0x0A { end += 1 }
+        guard end > start else { return nil }
+        return (String(decoding: bytes[start..<end], as: UTF8.self), start..<end)
     }
 
     /// Paragraph ranges carrying one of the requested task states.
