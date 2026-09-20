@@ -41,6 +41,12 @@ A 16 MB Markdown file opens and scrolls end to end in about 130 ms.
   done. The marker follows whatever spelling the file already uses, so a
   document written in `[✅]` stays written in `[✅]`.
 - **Copy a code block** from the button that appears when you hover it.
+- **See what changed underneath you.** When another program rewrites the file
+  while you are reading it, the lines it touched stay highlighted, in a colour
+  derived from the clock time of that save: one edit, one colour, and a later
+  one is visibly a different edit. Hovering says when. The marks last until you
+  close the document.
+- **Share** the file to Mail, Messages or AirDrop from the system share sheet.
 - **Tabs that follow intent.** Files opened together share one window with tabs.
   A file opened on its own gets its own window. Drop a file on a window and it
   joins that window; drop it on the Dock icon and it opens a new one.

@@ -13,7 +13,7 @@ DEBUG_APP  := $(DERIVED)/Build/Products/Debug/$(APP).app
 RELEASE_APP:= $(DERIVED)/Build/Products/Release/$(APP).app
 INSTALL_TO := /Applications/$(APP).app
 
-.PHONY: all test build release install uninstall run clean project reregister help
+.PHONY: all test build release install uninstall run clean project reregister icon help
 
 help:
 	@echo "make test        Run the engine's unit tests (no Xcode needed)"
@@ -22,6 +22,7 @@ help:
 	@echo "make install     Build Release and install to /Applications"
 	@echo "make run         Build and launch with the example document"
 	@echo "make uninstall   Remove the installed app and deregister it"
+	@echo "make icon        Rebuild the app icon from Design/icon-source.png"
 	@echo "make clean       Remove build output and the generated project"
 
 all: test build
@@ -66,6 +67,21 @@ reregister:
 	@pluginkit -r "$(PWD)/$(RELEASE_APP)/Contents/PlugIns/MarkdownQuickLook.appex" 2>/dev/null || true
 	@pluginkit -a "$(INSTALL_TO)/Contents/PlugIns/MarkdownQuickLook.appex" 2>/dev/null || true
 	@pluginkit -e use -i ch.sala.BloodySimpleMarkdownViewer.QuickLook 2>/dev/null || true
+
+# The icon is committed, so a plain build needs no extra tools. Regenerate it
+# after changing the artwork; zopflipng is optional and only shrinks the result.
+icon: Design/icon-source.png Tools/makeicon.swift
+	@rm -rf $(DERIVED)/Markdown.iconset
+	@mkdir -p $(DERIVED)
+	@xcrun swiftc -sdk $$(xcrun --show-sdk-path --sdk macosx) \
+		-o $(DERIVED)/makeicon Tools/makeicon.swift
+	@$(DERIVED)/makeicon Design/icon-source.png $(DERIVED)/Markdown.iconset
+	@command -v zopflipng >/dev/null && \
+		for f in $(DERIVED)/Markdown.iconset/*.png; do \
+			zopflipng -y --lossy_transparent "$$f" "$$f.out" >/dev/null 2>&1 && mv "$$f.out" "$$f"; \
+		done || echo "zopflipng not installed; icons are uncompressed"
+	@iconutil -c icns $(DERIVED)/Markdown.iconset -o App/Resources/Markdown.icns
+	@echo "Wrote App/Resources/Markdown.icns"
 
 uninstall:
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

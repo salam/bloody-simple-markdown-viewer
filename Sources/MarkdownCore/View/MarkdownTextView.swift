@@ -288,6 +288,22 @@ public final class MarkdownTextView: NSTextView {
                 band.fill()
             }
 
+            // Lines another program changed while this document was open.
+            // Drawn over the code band rather than under it, or a change inside
+            // a fenced block would be the one place it stayed invisible.
+            if let changed = storage.attribute(.changedAt, at: probe, effectiveRange: nil) as? Date {
+                let tint = ChangeTracker.color(for: changed, isDark: self.theme.isDarkBackground)
+                let band = NSRect(x: inset.width - 8, y: rect.minY,
+                                  width: columnWidth + 16, height: rect.height)
+                tint.withAlphaComponent(self.theme.isDarkBackground ? 0.22 : 0.18).setFill()
+                band.fill()
+                // A solid bar in the gutter, because a wash this faint is easy
+                // to miss and the margin is empty anyway.
+                let bar = NSRect(x: inset.width - 16, y: rect.minY, width: 4, height: rect.height)
+                tint.setFill()
+                NSBezierPath(roundedRect: bar, xRadius: 2, yRadius: 2).fill()
+            }
+
             guard let depth = storage.attribute(.quoteDepth, at: probe, effectiveRange: nil) as? Int,
                   depth > 0 else { return true }
 
@@ -445,7 +461,22 @@ public final class MarkdownTextView: NSTextView {
 
     public override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        updateCopyButton(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+        updateCopyButton(at: point)
+        updateChangeTooltip(at: point)
+    }
+
+    /// Says when a highlighted line was changed. The colour distinguishes one
+    /// edit from another; only this says what time it was.
+    private func updateChangeTooltip(at point: NSPoint) {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        let index = min(max(characterIndexForInsertion(at: point), 0), storage.length - 1)
+        guard let changed = storage.attribute(.changedAt, at: index, effectiveRange: nil) as? Date
+        else {
+            if toolTip != nil { toolTip = nil }
+            return
+        }
+        toolTip = "Changed at \(ChangeTracker.label(for: changed)) by another app"
     }
 
     public override func mouseExited(with event: NSEvent) {

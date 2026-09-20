@@ -14,6 +14,10 @@ final class MarkdownDocument: NSDocument {
     /// True when the window is showing editable source rather than rendered output.
     var isShowingSource = false
 
+    /// Lines another program changed while this document was open. Reset by
+    /// construction, so the highlights last exactly as long as the window does.
+    private(set) var changes = ChangeTracker()
+
     override class var autosavesInPlace: Bool { false }
 
     override func makeWindowControllers() {
@@ -41,6 +45,9 @@ final class MarkdownDocument: NSDocument {
     /// Called by the window controller when the user edits in source mode.
     func updateSource(_ newValue: String) {
         guard newValue != source else { return }
+        // Our own edit adds no highlight, but it does move the lines the
+        // existing ones sit on.
+        changes.remap(from: source, to: newValue)
         source = newValue
         updateChangeCount(.changeDone)
     }
@@ -94,6 +101,11 @@ final class MarkdownDocument: NSDocument {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let text = try? String(contentsOf: url, encoding: .utf8), text != self.source else { return }
+            // Record before replacing: the diff is the only thing that knows
+            // which lines are new, and after the assignment the old text is
+            // gone. Our own writes never reach here, because they leave the
+            // file equal to what is already in `source`.
+            self.changes.record(from: self.source, to: text)
             self.source = text
             self.rerender()
             for controller in self.windowControllers {

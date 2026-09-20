@@ -36,6 +36,19 @@ path never instantiates attachment views. If you add a construct that hosts a
 view, give it a flattened branch that produces an image, or it will silently
 vanish from printed output and PDFs.
 
+**A source position is a UTF-8 byte offset, never a UTF-16 index.** That is
+what cmark reports and what `.sourceOffset` carries. AppKit's text APIs count
+UTF-16 units. The two are equal for as long as a document stays ASCII, so
+mixing them passes every test and then puts bookmarks on the wrong line in the
+first file with an umlaut in it. Convert through `SourceOffset` wherever they
+meet, and write fixtures that diverge by more than one line — a handful of
+multi-byte characters shifts the counts by less than that and hides the bug.
+
+**A pull-down `NSPopUpButton` draws its first menu item's image.** Not
+`button.image`. A menu that starts empty, or one built and then never assigned,
+leaves a bare chevron in the toolbar that does nothing, with no warning. Both
+mistakes were in this toolbar at once.
+
 **A derived view of the document is never editable.** The task filter shows a
 subset of the file. The source view writes what it holds back to the document
 on every change, on the mode toggle and on close. Filtered source is therefore

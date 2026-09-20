@@ -22,6 +22,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     private var searchOptions = SearchOptions()
     private var matches: [NSRange] = []
     private var currentMatch: Int?
+    /// What the search field held last time it fired, so Return on an unchanged
+    /// query can be told apart from a query that actually changed.
+    private var lastQuery: String?
     private var isOutlineVisible = false
     /// Empty means no filter: the whole document is shown.
     private var taskFilterStates: Set<Checkbox.State> = []
@@ -173,6 +176,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             textView.display(document.rendered)
         }
         textView.isEditable = isSourceEditable
+        applyChangeHighlights(document)
         setEmptyStateVisible(filtering && matches == 0)
 
         window?.title = document.displayName
@@ -180,6 +184,23 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         outlineTable.reloadData()
         updateTaskFilterMenu()
         runSearch()
+    }
+
+    /// Tints the lines another program changed while this document was open.
+    ///
+    /// Applied after the text is in place rather than during rendering, so it
+    /// survives every mode: the marks are keyed to source lines and the runs on
+    /// screen carry the source offsets to match them against.
+    private func applyChangeHighlights(_ document: MarkdownDocument) {
+        guard !document.changes.isEmpty, let storage = textView.textStorage else { return }
+        storage.beginEditing()
+        if document.isShowingSource, taskFilterStates.isEmpty {
+            document.changes.markSourceRuns(in: storage, source: document.source)
+        } else {
+            document.changes.markRuns(in: storage, source: document.source)
+        }
+        storage.endEditing()
+        textView.refreshViewport()
     }
 
     /// The source view is editable only when it shows the whole file. A
@@ -335,9 +356,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     }
 
     @objc func searchFieldChanged(_ sender: Any?) {
+        let query = searchField?.stringValue ?? ""
+        // The field sends this on every keystroke and again on Return. Only a
+        // changed query restarts the search: Return on an unchanged one means
+        // "next", and restarting would land on the hit the caret is already
+        // sitting on and never leave it.
+        guard query != lastQuery else {
+            moveToMatch(forward: true)
+            return
+        }
+        lastQuery = query
         currentMatch = nil
         runSearch()
-        if !matches.isEmpty { moveToMatch(forward: true) }
+        guard !matches.isEmpty else { return }
+        currentMatch = DocumentSearch.indexOfMatch(at: textView.selectedRange().location,
+                                                   in: matches, forward: true)
+        revealCurrentMatch()
     }
 
     @IBAction func findNext(_ sender: Any?) { moveToMatch(forward: true) }
@@ -352,6 +386,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         }
         sender.state = sender.state == .on ? .off : .on
         currentMatch = nil
+        lastQuery = nil
         runSearch()
     }
 
@@ -382,16 +417,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         textView.highlight(matches: matches, current: currentMatch)
     }
 
+    /// Moves to the next or previous match, measured from what is selected now
+    /// rather than from a remembered index, which the search field used to
+    /// clear out from under it on every Return.
     private func moveToMatch(forward: Bool) {
         guard !matches.isEmpty else { return }
-        let from: Int
-        if let current = currentMatch, current < matches.count {
-            from = forward ? matches[current].location + 1 : matches[current].location
-        } else {
-            from = textView.selectedRange().location
-        }
-        currentMatch = DocumentSearch.indexOfMatch(at: from, in: matches, forward: forward)
-        guard let index = currentMatch else { return }
+        currentMatch = DocumentSearch.indexOfMatch(after: textView.selectedRange(),
+                                                   in: matches, forward: forward)
+        revealCurrentMatch()
+    }
+
+    private func revealCurrentMatch() {
+        guard let index = currentMatch, index < matches.count else { return }
         textView.highlight(matches: matches, current: index)
         textView.reveal(matches[index])
         matchCountLabel?.stringValue = "\(index + 1) of \(matches.count)"

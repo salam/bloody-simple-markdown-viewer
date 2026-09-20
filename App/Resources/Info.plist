@@ -64,6 +64,9 @@
 		</dict>
 	</array>
 
+	<key>CFBundleIconFile</key>
+	<string>Markdown</string>
+
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -71,6 +74,8 @@
 			<string>Markdown Document</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>Markdown</string>
 			<key>LSHandlerRank</key>
 			<string>Default</string>
 			<key>NSDocumentClass</key>

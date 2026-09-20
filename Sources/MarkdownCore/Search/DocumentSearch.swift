@@ -53,11 +53,28 @@ public enum DocumentSearch {
     }
 
     /// Index of the first match at or after an offset, wrapping around the ends.
+    ///
+    /// Inclusive: this is where a *new* query starts from, so narrowing "fo" to
+    /// "foo" stays on the hit under the caret rather than skipping past it.
     public static func indexOfMatch(at offset: Int, in matches: [NSRange], forward: Bool) -> Int? {
         guard !matches.isEmpty else { return nil }
         if forward {
             return matches.firstIndex { $0.location >= offset } ?? 0
         }
         return matches.lastIndex { $0.location < offset } ?? matches.count - 1
+    }
+
+    /// Index of the match after the one currently selected, wrapping around.
+    ///
+    /// Exclusive, and that is the whole point: after jumping to a match the
+    /// caret sits exactly on it, so the inclusive rule above hands back the
+    /// same match and Find Next never leaves the first hit.
+    public static func indexOfMatch(after selection: NSRange,
+                                    in matches: [NSRange], forward: Bool) -> Int? {
+        guard !matches.isEmpty else { return nil }
+        if forward {
+            return matches.firstIndex { $0.location > selection.location } ?? 0
+        }
+        return matches.lastIndex { $0.location < selection.location } ?? matches.count - 1
     }
 }
