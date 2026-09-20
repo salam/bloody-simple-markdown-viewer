@@ -89,6 +89,12 @@ timestamp rather than partly lost.
 not only when `project.yml` does. Without that a new file builds for whoever
 added it, from their own incremental project, and is missing for everyone else.
 
+## Releasing
+
+Push a tag; the workflow does the rest. The credentials it needs, and how to
+produce them, are in [docs/RELEASING.md](docs/RELEASING.md). They live in GitHub
+encrypted secrets and nowhere else.
+
 ## Style
 
 Comments explain why, not what. If a piece of code looks strange, say what goes

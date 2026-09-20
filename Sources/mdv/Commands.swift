@@ -10,6 +10,9 @@ struct Options {
     var caseSensitive = false
     var state: String?
     var output: String?
+    var dark = false
+    var width: Int?
+    var height: Int?
 
     init(arguments: inout [String]) {
         var rest: [String] = []
@@ -23,6 +26,13 @@ struct Options {
             case "--state":
                 index += 1
                 state = index < arguments.count ? arguments[index] : nil
+            case "--dark": dark = true
+            case "--width":
+                index += 1
+                width = index < arguments.count ? Int(arguments[index]) : nil
+            case "--height":
+                index += 1
+                height = index < arguments.count ? Int(arguments[index]) : nil
             case "-o", "--output":
                 index += 1
                 output = index < arguments.count ? arguments[index] : nil
@@ -291,6 +301,69 @@ enum Commands {
         }
         if options.json {
             Output.emit(["ok": true, "file": loaded.url.path, "pdf": destination.path])
+        } else {
+            print(destination.path)
+        }
+    }
+
+    /// Renders to a PNG, the way the window would show it.
+    ///
+    /// Useful to anything that wants to look at a document rather than read it,
+    /// and it is what makes the screenshots in the README reproducible rather
+    /// than something somebody once took.
+    static func png(_ arguments: [String], _ options: Options) throws {
+        let url = try url(arguments)
+        guard let source = try? String(contentsOf: url, encoding: .utf8) else {
+            throw CommandError.cannotRead("could not read \(url.lastPathComponent) as UTF-8")
+        }
+        let width = CGFloat(options.width ?? 920)
+        let height = CGFloat(options.height ?? 1500)
+        let destination = options.output.map {
+            URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)
+        } ?? url.deletingPathExtension().appendingPathExtension("png")
+
+        var theme = Theme.system
+        theme.isDarkBackground = options.dark
+        let paper: NSColor = options.dark ? NSColor(white: 0.11, alpha: 1) : .white
+        if options.dark {
+            theme.textColor = NSColor(white: 0.92, alpha: 1)
+            theme.secondaryTextColor = NSColor(white: 0.62, alpha: 1)
+            theme.codeBackground = NSColor(white: 1, alpha: 0.06)
+        }
+
+        let resolved = SnippetResolver.expand(source: source, baseURL: url) {
+            try? String(contentsOf: $0, encoding: .utf8)
+        }
+        let scroll = MarkdownScrollView(theme: theme)
+        scroll.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        scroll.backgroundColor = paper
+        let view = scroll.markdownTextView
+        view.theme = theme
+        view.backgroundColor = paper
+        // Flattened: attachment-hosted views are never instantiated without a
+        // live viewport, and a table would come out as a hole in the page.
+        view.display(DocumentRenderer(theme: theme, baseURL: url,
+                                      attachmentRendering: .flattened)
+            .render(expanded: resolved.text, original: source, map: resolved.map))
+
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = scroll
+        scroll.layoutSubtreeIfNeeded()
+        view.refreshViewport()
+        scroll.layoutSubtreeIfNeeded()
+
+        guard let rep = scroll.bitmapImageRepForCachingDisplay(in: scroll.bounds) else {
+            throw CommandError.failed("could not make a bitmap")
+        }
+        scroll.cacheDisplay(in: scroll.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]),
+              (try? data.write(to: destination)) != nil else {
+            throw CommandError.failed("could not write \(destination.path)")
+        }
+        if options.json {
+            Output.emit(["ok": true, "file": url.path, "png": destination.path,
+                         "width": Int(width), "height": Int(height)])
         } else {
             print(destination.path)
         }

@@ -15,27 +15,25 @@ jobs:
   # and gives contributors fast feedback on the part most changes touch.
   engine:
     name: Engine tests
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - name: Show toolchain
         run: swift --version
       - name: Build
         run: swift build
       - name: Test
         run: swift test
+      - name: Build the command line tool
+        run: swift build --product mdv
 
   # Builds the app and the Quick Look extension. Ad-hoc signing is enough to
   # compile and link; a runner has no Developer ID and does not need one.
   app:
     name: App and extension
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project

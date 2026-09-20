@@ -5,70 +5,152 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Signed, notarised release
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Import signing certificate
+      # The tag is the version. Without this the bundle would ship whatever
+      # number happened to be in project.yml, and a release called v0.2.0
+      # would report 0.1.0 in its own About box.
+      - name: Take the version from the tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -n "$VERSION" ] || VERSION="0.0.0-dev"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION"
+
+      # A throwaway keychain, unlocked only for this job. The default keychain
+      # is left alone so nothing else on the runner is disturbed, and the
+      # keychain is deleted in `always()` below even if the build fails.
+      - name: Import the signing certificate
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          set -euo pipefail
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
           echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
+          security set-keychain-settings -lut 3600 build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security import certificate.p12 -k build.keychain \
-            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          # Searched in addition to the login keychain, not instead of it.
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | tr -d '"')
           rm certificate.p12
+          security find-identity -v -p codesigning build.keychain
 
-      - name: Build Release
+      - name: Test
+        run: swift test
+
+      - name: Build the app
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
           xcodegen generate
           xcodebuild \
             -project BloodySimpleMarkdownViewer.xcodeproj \
             -scheme Markdown \
             -configuration Release \
             -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--keychain build.keychain" \
             build
+
+      - name: Build the command line tool
+        run: swift build -c release --product mdv
 
       - name: Verify the sandbox entitlement survived signing
         run: |
-          APPEX="build/Build/Products/Release/Markdown.app/Contents/PlugIns/MarkdownQuickLook.appex"
+          set -euo pipefail
+          APP="build/Build/Products/Release/Markdown.app"
+          APPEX="$APP/Contents/PlugIns/MarkdownQuickLook.appex"
           # PlugInKit silently refuses to register an extension whose
-          # entitlements were stripped after signing, and says so only in
-          # pkd's log. Catch it here instead of shipping a dead extension.
+          # entitlements were stripped after signing, and says so only in pkd's
+          # log. Catch it here rather than shipping a dead extension.
           codesign -d --entitlements - "$APPEX" 2>&1 | grep -q "app-sandbox" \
             || { echo "The extension lost its sandbox entitlement and will not load"; exit 1; }
-          codesign --verify --deep --strict build/Build/Products/Release/Markdown.app
+          codesign --verify --deep --strict --verbose=2 "$APP"
 
+      # notarytool takes either an App Store Connect API key or an Apple ID with
+      # an app-specific password. The key is preferred: it is scoped, revocable,
+      # and not tied to one person's two-factor login.
       - name: Notarise and staple
         env:
+          API_KEY: ${{ secrets.APPSTORE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPSTORE_API_ISSUER_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          set -euo pipefail
           APP="build/Build/Products/Release/Markdown.app"
-          ditto -c -k --keepParent "$APP" Markdown.zip
-          xcrun notarytool submit Markdown.zip \
-            --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
-            --password "$APP_PASSWORD" --wait
+          ditto -c -k --keepParent "$APP" notarize.zip
+
+          if [ -n "${API_KEY:-}" ]; then
+            echo "$API_KEY" | base64 --decode > api_key.p8
+            xcrun notarytool submit notarize.zip \
+              --key api_key.p8 --key-id "$API_KEY_ID" --issuer "$API_ISSUER" \
+              --wait --timeout 30m
+            rm api_key.p8
+          elif [ -n "${APP_PASSWORD:-}" ]; then
+            xcrun notarytool submit notarize.zip \
+              --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD" \
+              --wait --timeout 30m
+          else
+            echo "No notarisation credentials. Set either APPSTORE_API_KEY_P8 +"
+            echo "APPSTORE_API_KEY_ID + APPSTORE_API_ISSUER_ID, or APPLE_ID +"
+            echo "APPLE_TEAM_ID + APPLE_APP_PASSWORD. See docs/RELEASING.md."
+            exit 1
+          fi
+
           xcrun stapler staple "$APP"
-          rm Markdown.zip
-          ditto -c -k --keepParent "$APP" Markdown.zip
+          # Gatekeeper's own verdict, which is what a downloader will get.
+          spctl --assess --type execute --verbose=4 "$APP"
+          rm notarize.zip
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          ditto -c -k --keepParent build/Build/Products/Release/Markdown.app \
+            "Markdown-$VERSION.zip"
+          ditto -c -k .build/release/mdv "mdv-$VERSION.zip"
+          shasum -a 256 Markdown-*.zip mdv-*.zip > checksums.txt
+          cat checksums.txt
 
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          files: Markdown.zip
+          files: |
+            Markdown-*.zip
+            mdv-*.zip
+            checksums.txt
           generate_release_notes: true
+
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain build.keychain || true

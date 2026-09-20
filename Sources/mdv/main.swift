@@ -26,13 +26,16 @@ COMMANDS
   text <file>                 The document as the viewer renders it, in plain text.
   search <file> <pattern>     Find matches. Add --regex for a pattern.
   pdf <file> [-o out.pdf]     Render to PDF.
+  png <file> [-o out.png]     Render to a PNG, as the window would show it.
 
 OPTIONS
   --json                      Machine-readable output. Available on every command.
   --state <s>                 open | done | in-progress | all   (default: all)
   --regex                     Treat the search pattern as a regular expression.
   --case                      Match case when searching.
-  -o, --output <path>         Where to write, for pdf.
+  -o, --output <path>         Where to write, for pdf and png.
+  --dark                      Render dark, for png.
+  --width N, --height N       Pixel size, for png. Defaults to 920x1500.
 
 EXIT CODES
   0  did what was asked          2  nothing matched
@@ -62,6 +65,7 @@ do {
     case "text":            try Commands.text(arguments, options)
     case "search":          try Commands.search(arguments, options)
     case "pdf":             try Commands.pdf(arguments, options)
+    case "png":             try Commands.png(arguments, options)
     case "-h", "--help", "help":
         print(usage)
     case "--version", "version":
