@@ -89,6 +89,26 @@ timestamp rather than partly lost.
 not only when `project.yml` does. Without that a new file builds for whoever
 added it, from their own incremental project, and is missing for everyone else.
 
+## Building someone else's copy
+
+`project.yml` names a `DEVELOPMENT_TEAM`, which is the maintainer's. It is not a
+secret — it appears in every signed binary — but it is not yours, so override it
+for a local build:
+
+```bash
+xcodebuild -project BloodySimpleMarkdownViewer.xcodeproj -scheme Markdown \
+  -configuration Debug DEVELOPMENT_TEAM=YOURTEAMID build
+```
+
+Or drop signing altogether, which is enough to run it locally:
+
+```bash
+xcodebuild ... CODE_SIGNING_ALLOWED=NO
+```
+
+The engine needs none of this: `swift test` and `swift build --product mdv` have
+nothing to do with Xcode.
+
 ## Releasing
 
 Push a tag; the workflow does the rest. The credentials it needs, and how to
