@@ -81,7 +81,10 @@ enum MainMenu {
             menu.addItem(.separator())
             add(menu, "Page Setup…", #selector(NSApplication.runPageLayout(_:)), "p",
                 [.command, .shift])
-            add(menu, "Print…", #selector(NSView.printView(_:)), "p")
+            // Not NSView.printView, which prints the live text view and
+            // bypasses MarkdownDocument.printOperation entirely: no pagination,
+            // no running head, and the page follows the screen's appearance.
+            add(menu, "Print…", #selector(NSDocument.printDocument(_:)), "p")
         }
     }
 

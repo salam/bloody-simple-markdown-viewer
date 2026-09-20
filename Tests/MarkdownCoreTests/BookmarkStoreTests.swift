@@ -86,6 +86,39 @@ struct BookmarkStoreTests {
         #expect(resolved == 5)
     }
 
+    /// The bug this was written for. Marks are stored as UTF-8 byte offsets;
+    /// `NSString.range(of:)` answers in UTF-16. Returning the match raw put
+    /// every mark in a document containing so much as an umlaut on the wrong
+    /// line, and the whole feature looked broken.
+    @Test func resolvedOffsetIsAUTF8ByteOffset() {
+        let (store, _) = makeStore()
+        let source = """
+        # Überschrift — mit Sonderzeichen
+
+        Ein Absatz mit «Anführungszeichen» und einem Pfeil →.
+
+        ## Ziel
+        """
+        let target = source.range(of: "## Ziel")!
+        let byteOffset = source.utf8.distance(from: source.utf8.startIndex,
+                                              to: target.lowerBound.samePosition(in: source.utf8)!)
+        let utf16Offset = (source as NSString).range(of: "## Ziel").location
+        #expect(byteOffset != utf16Offset, "the fixture must actually distinguish the two")
+
+        store.add(for: file, sourceOffset: byteOffset, snippet: "## Ziel")
+        let bookmark = store.bookmarks(for: file)[0]
+        #expect(store.resolvedOffset(for: bookmark, in: source) == byteOffset)
+    }
+
+    /// The same keystroke adds and removes, so the caller has to be told which
+    /// happened or it cannot give the reader any feedback at all.
+    @Test func addingReportsWhetherItAddedOrRemoved() {
+        let (store, _) = makeStore()
+        #expect(store.add(for: file, sourceOffset: 100, snippet: "line") == true)
+        #expect(store.add(for: file, sourceOffset: 101, snippet: "line") == false)
+        #expect(store.add(for: file, sourceOffset: 101, snippet: "line") == true)
+    }
+
     @Test func clampsToTheEndOfAShrunkenDocument() {
         let (store, _) = makeStore()
         store.add(for: file, sourceOffset: 9_000, snippet: "gone")

@@ -54,20 +54,30 @@ public final class BookmarkStore {
         entries[key(for: url)]?.bookmarks.sorted { $0.sourceOffset < $1.sourceOffset } ?? []
     }
 
-    public func add(for url: URL, sourceOffset: Int, snippet: String) {
+    /// Adds a mark at a UTF-8 byte offset, or removes the one already there.
+    ///
+    /// - Returns: `true` when a mark was added, `false` when one was removed.
+    ///   The caller needs to know which, because the two look identical
+    ///   otherwise and the same keystroke does both.
+    @discardableResult
+    public func add(for url: URL, sourceOffset: Int, snippet: String) -> Bool {
         var entry = entries[key(for: url)] ?? Entry(
             bookmarkData: try? url.bookmarkData(options: .withSecurityScope),
             lastKnownPath: url.path,
             bookmarks: []
         )
         // Adding at a position that already has a mark toggles it off.
+        let added: Bool
         if let existing = entry.bookmarks.firstIndex(where: { abs($0.sourceOffset - sourceOffset) < 4 }) {
             entry.bookmarks.remove(at: existing)
+            added = false
         } else {
             entry.bookmarks.append(Bookmark(sourceOffset: sourceOffset, snippet: snippet))
+            added = true
         }
         entries[key(for: url)] = entry
         save()
+        return added
     }
 
     public func remove(_ bookmark: Bookmark, for url: URL) {
@@ -79,14 +89,19 @@ public final class BookmarkStore {
 
     /// Re-locates a bookmark whose file has changed underneath it, by looking
     /// for its snippet near the recorded offset before falling back to it.
+    ///
+    /// Returns a UTF-8 byte offset, the same unit `sourceOffset` is stored in.
+    /// `NSString.range(of:)` answers in UTF-16, so the match has to be
+    /// converted; returning it raw put every mark in a document containing so
+    /// much as an umlaut on the wrong line.
     public func resolvedOffset(for bookmark: Bookmark, in source: String) -> Int {
-        let ns = source as NSString
-        guard !bookmark.snippet.isEmpty, ns.length > 0 else {
-            return min(bookmark.sourceOffset, max(ns.length - 1, 0))
-        }
-        let found = ns.range(of: bookmark.snippet)
-        if found.location != NSNotFound { return found.location }
-        return min(bookmark.sourceOffset, max(ns.length - 1, 0))
+        let byteCount = source.utf8.count
+        let fallback = min(bookmark.sourceOffset, max(byteCount - 1, 0))
+        guard !bookmark.snippet.isEmpty, byteCount > 0 else { return fallback }
+
+        let found = (source as NSString).range(of: bookmark.snippet)
+        guard found.location != NSNotFound else { return fallback }
+        return SourceOffset.byte(forUTF16: found.location, in: source)
     }
 
     private func load() {

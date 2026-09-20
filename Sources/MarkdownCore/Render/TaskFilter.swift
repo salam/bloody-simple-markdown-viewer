@@ -90,30 +90,13 @@ public enum TaskFilter {
         for range in ranges {
             guard let offset = rendered.attribute(.sourceOffset, at: range.location,
                                                   effectiveRange: nil) as? Int,
-                  let line = sourceLine(at: offset, in: bytes) else { continue }
+                  let line = SourceOffset.line(atByte: offset, in: bytes) else { continue }
             let piece = NSMutableAttributedString(string: line.text + "\n", attributes: attributes)
             piece.addAttribute(.sourceOffset, value: line.range.lowerBound,
                                range: NSRange(location: 0, length: piece.length))
             out.append(piece)
         }
         return out
-    }
-
-    /// The whole source line containing a UTF-8 byte offset, and where it starts.
-    ///
-    /// Scanning bytes rather than characters is deliberate: the offsets carried
-    /// through the render are UTF-8 byte offsets, and only the line feed can
-    /// appear as byte 0x0A, so a multi-byte character can never be mistaken for
-    /// a boundary.
-    static func sourceLine(at offset: Int, in bytes: [UInt8]) -> (text: String, range: Range<Int>)? {
-        guard !bytes.isEmpty else { return nil }
-        let probe = min(max(offset, 0), bytes.count - 1)
-        var start = probe
-        while start > 0, bytes[start - 1] != 0x0A { start -= 1 }
-        var end = probe
-        while end < bytes.count, bytes[end] != 0x0A { end += 1 }
-        guard end > start else { return nil }
-        return (String(decoding: bytes[start..<end], as: UTF8.self), start..<end)
     }
 
     /// Paragraph ranges carrying one of the requested task states.

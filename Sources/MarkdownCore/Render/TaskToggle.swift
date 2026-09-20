@@ -32,7 +32,7 @@ public enum TaskToggle {
                              atSourceOffset offset: Int,
                              in source: String) -> String? {
         let bytes = Array(source.utf8)
-        guard let line = TaskFilter.sourceLine(at: offset, in: bytes),
+        guard let line = SourceOffset.line(atByte: offset, in: bytes),
               let rewritten = replacingMarker(in: line.text,
                                               with: marker(for: state, matching: source))
         else { return nil }

@@ -1,11 +1,13 @@
 import AppKit
 import MarkdownCore
+import UniformTypeIdentifiers
 
 extension NSToolbarItem.Identifier {
     static let sourceToggle = NSToolbarItem.Identifier("ch.sala.bsmv.sourceToggle")
     static let outlineToggle = NSToolbarItem.Identifier("ch.sala.bsmv.outlineToggle")
     static let bookmark = NSToolbarItem.Identifier("ch.sala.bsmv.bookmark")
     static let export = NSToolbarItem.Identifier("ch.sala.bsmv.export")
+    static let share = NSToolbarItem.Identifier("ch.sala.bsmv.share")
     static let taskFilter = NSToolbarItem.Identifier("ch.sala.bsmv.taskFilter")
     static let search = NSToolbarItem.Identifier("ch.sala.bsmv.search")
     static let matchCount = NSToolbarItem.Identifier("ch.sala.bsmv.matchCount")
@@ -29,13 +31,17 @@ extension DocumentWindowController: NSToolbarDelegate {
         return toolbar
     }
 
+    /// Export is deliberately not here. Sharing covers the common case in one
+    /// click, and PDF export stays one drag away in Customise Toolbar for
+    /// anyone who wants it, as well as in the File menu.
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.sourceToggle, .outlineToggle, .taskFilter, .flexibleSpace,
-         .matchCount, .search, .findOptions, .bookmark, .export]
+         .matchCount, .search, .findOptions, .bookmark, .share]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.sourceToggle, .outlineToggle, .taskFilter, .bookmark, .export, .search, .matchCount, .findOptions,
+        [.sourceToggle, .outlineToggle, .taskFilter, .bookmark, .share, .export,
+         .search, .matchCount, .findOptions,
          .flexibleSpace, .space, .sidebarTrackingSeparator]
     }
 
@@ -58,8 +64,16 @@ extension DocumentWindowController: NSToolbarDelegate {
             let button = NSPopUpButton(frame: .zero, pullsDown: true)
             button.bezelStyle = .toolbar
             button.imagePosition = .imageOnly
-            button.menu = NSMenu()
-            button.menu?.delegate = self
+            // A pull-down button draws its first menu item's image, so the menu
+            // cannot start empty: `menuNeedsUpdate` only fires when the menu is
+            // about to open, which left a bare chevron in the toolbar until
+            // someone clicked the thing they could not see.
+            let menu = NSMenu()
+            menu.delegate = self
+            let icon = NSMenuItem()
+            icon.image = NSImage(systemSymbolName: "bookmark", accessibilityDescription: "Bookmarks")
+            menu.addItem(icon)
+            button.menu = menu
             bookmarkButton = button
             item.view = button
             item.label = "Bookmarks"
@@ -95,25 +109,33 @@ extension DocumentWindowController: NSToolbarDelegate {
             return item
 
         case .export:
+            // Was a pull-down whose menu was built and then never assigned, so
+            // it drew as an empty chevron and did nothing at all. One button,
+            // one action.
             let item = NSToolbarItem(itemIdentifier: identifier)
-            let button = NSPopUpButton(frame: .zero, pullsDown: true)
+            item.image = Self.pdfIcon
+            item.label = "Export PDF"
+            item.paletteLabel = "Export as PDF"
+            item.toolTip = "Export the rendered document as a PDF"
+            item.target = nil          // routed to the document via the responder chain
+            item.action = #selector(MarkdownDocument.exportAsPDF(_:))
+            item.isBordered = true
+            return item
+
+        case .share:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let button = NSButton(image: NSImage(systemSymbolName: "square.and.arrow.up",
+                                                 accessibilityDescription: "Share")!,
+                                  target: self, action: #selector(shareDocument(_:)))
             button.bezelStyle = .toolbar
             button.imagePosition = .imageOnly
-            let menu = NSMenu()
-            let icon = NSMenuItem()
-            icon.image = NSImage(systemSymbolName: "square.and.arrow.up",
-                                 accessibilityDescription: "Export")
-            menu.addItem(icon)
-            let pdf = NSMenuItem(title: "Export as PDF…",
-                                 action: #selector(MarkdownDocument.exportAsPDF(_:)),
-                                 keyEquivalent: "")
-            menu.addItem(pdf)
-            let print = NSMenuItem(title: "Print…",
-                                   action: #selector(NSView.printView(_:)), keyEquivalent: "")
-            menu.addItem(print)
+            // Kept as a view because the share sheet is a popover and needs
+            // something on screen to point at.
+            shareButton = button
             item.view = button
-            item.label = "Export"
-            item.toolTip = "Export as PDF or print"
+            item.label = "Share"
+            item.paletteLabel = "Share"
+            item.toolTip = "Share this document"
             return item
 
         case .search:
@@ -172,6 +194,14 @@ extension DocumentWindowController: NSToolbarDelegate {
             return nil
         }
     }
+
+    /// The system's own icon for the PDF type. No SF Symbol reads as "PDF",
+    /// and this is the picture people already associate with one.
+    private static let pdfIcon: NSImage = {
+        let icon = NSWorkspace.shared.icon(for: .pdf)
+        icon.size = NSSize(width: 18, height: 18)
+        return icon
+    }()
 
     private func button(_ identifier: NSToolbarItem.Identifier, symbol: String,
                         label: String, tooltip: String, action: Selector) -> NSToolbarItem {

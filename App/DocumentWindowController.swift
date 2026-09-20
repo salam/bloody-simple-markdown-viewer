@@ -17,6 +17,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     var findOptionsButton: NSPopUpButton?
     var taskFilterButton: NSPopUpButton?
     var bookmarkButton: NSPopUpButton?
+    var shareButton: NSButton?
 
     private var searchOptions = SearchOptions()
     private var matches: [NSRange] = []
@@ -25,6 +26,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
     /// Empty means no filter: the whole document is shown.
     private var taskFilterStates: Set<Checkbox.State> = []
     private var zoomStep = 0
+    private var bookmarkFlashWork: DispatchWorkItem?
 
     private var markdownDocument: MarkdownDocument? { document as? MarkdownDocument }
     private var textView: MarkdownTextView { scrollView.markdownTextView }
@@ -395,18 +397,87 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         matchCountLabel?.stringValue = "\(index + 1) of \(matches.count)"
     }
 
+    // MARK: Sharing
+
+    /// Hands the file to the system share sheet.
+    ///
+    /// Shares the document itself rather than a rendering of it, which is what
+    /// every other document app does and what the recipient can edit. PDF is
+    /// its own command.
+    @IBAction func shareDocument(_ sender: Any?) {
+        guard let document = markdownDocument, let url = document.fileURL else { return }
+        // Save first, or the recipient gets the version on disk rather than the
+        // one on screen.
+        if document.isDocumentEdited {
+            document.save(withDelegate: nil, didSave: nil, contextInfo: nil)
+        }
+        // The sheet is a popover and needs something on screen to point at.
+        // The toolbar button when it is there, the document when it is not.
+        let anchor: NSView = (sender as? NSView) ?? shareButton ?? scrollView
+        let picker = NSSharingServicePicker(items: [url])
+        picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+    }
+
     // MARK: Bookmarks
 
     @IBAction func addBookmark(_ sender: Any?) {
         guard let document = markdownDocument, let url = document.fileURL else { return }
-        let offset = document.isShowingSource
-            ? textView.selectedRange().location
-            : document.rendered.sourceOffset(
-                forCharacterOffset: textView.characterIndexForInsertion(
-                    at: scrollView.contentView.bounds.origin))
-        BookmarkStore.shared.add(for: url, sourceOffset: offset,
-                                 snippet: snippet(around: offset, in: document.source))
+        let offset = bookmarkTarget(in: document)
+        let added = BookmarkStore.shared.add(
+            for: url,
+            sourceOffset: offset,
+            snippet: SourceOffset.line(atByte: offset, in: document.source))
+        // The same keystroke adds and removes, and neither changed anything
+        // visible before, so the whole feature read as broken.
+        updateBookmarkButton(flashing: added ? "bookmark.fill" : "bookmark.slash")
     }
+
+    /// Where a new mark goes: the selection if the reader made one, otherwise
+    /// the line at the top of the viewport, which is where they are reading.
+    ///
+    /// Answers in UTF-8 bytes, the unit `Bookmark.sourceOffset` is stored in.
+    private func bookmarkTarget(in document: MarkdownDocument) -> Int {
+        let selection = textView.selectedRange()
+        let characterOffset = selection.length > 0
+            ? selection.location
+            : textView.characterIndexForInsertion(at: scrollView.contentView.bounds.origin)
+
+        // Unfiltered source mode indexes the source itself, in UTF-16.
+        if document.isShowingSource, taskFilterStates.isEmpty {
+            return SourceOffset.byte(forUTF16: characterOffset, in: document.source)
+        }
+        // Every other view is derived, so ask the text actually on screen which
+        // source byte it came from. Looking the index up in the unfiltered
+        // render would be wrong the moment a filter is on.
+        guard let storage = textView.textStorage, storage.length > 0 else { return 0 }
+        let probe = min(max(characterOffset, 0), storage.length - 1)
+        return storage.attribute(.sourceOffset, at: probe, effectiveRange: nil) as? Int ?? 0
+    }
+
+    /// Reflects the document's bookmark state on the toolbar button.
+    ///
+    /// A pull-down `NSPopUpButton` draws its first menu item's image, so that
+    /// is where the icon lives. `flashing` shows a different symbol briefly, to
+    /// distinguish a mark being placed from one being taken away.
+    private func updateBookmarkButton(flashing symbol: String? = nil) {
+        guard let button = bookmarkButton else { return }
+        let count = markdownDocument?.fileURL
+            .map { BookmarkStore.shared.bookmarks(for: $0).count } ?? 0
+        button.menu?.items.first?.image = NSImage(
+            systemSymbolName: symbol ?? (count > 0 ? "bookmark.fill" : "bookmark"),
+            accessibilityDescription: "Bookmarks")
+        button.contentTintColor = (symbol != nil || count > 0) ? .controlAccentColor : nil
+        button.toolTip = count == 0
+            ? "Bookmarks in this document"
+            : "\(count) bookmark\(count == 1 ? "" : "s") in this document"
+
+        guard symbol != nil else { return }
+        bookmarkFlashWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.updateBookmarkButton() }
+        bookmarkFlashWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
+    }
+
 
     /// Rebuilds the bookmark menu when it is about to open, so the list is
     /// always current without observing the store.
@@ -415,7 +486,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         menu.removeAllItems()
 
         let icon = NSMenuItem()
-        icon.image = NSImage(systemSymbolName: "bookmark", accessibilityDescription: "Bookmarks")
+        icon.image = NSImage(systemSymbolName: bookmarkSymbol, accessibilityDescription: "Bookmarks")
         menu.addItem(icon)
 
         let add = NSMenuItem(title: "Add Bookmark Here",
@@ -462,10 +533,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         // line.
         let offset = BookmarkStore.shared.resolvedOffset(for: bookmark, in: document.source)
         if document.isShowingSource {
-            let line = (textView.string as NSString)
-                .lineRange(for: NSRange(location: min(offset, (textView.string as NSString).length),
-                                        length: 0))
-            textView.reveal(line)
+            // The offset is a source byte offset; NSString counts UTF-16.
+            let ns = textView.string as NSString
+            let utf16 = min(SourceOffset.utf16(forByte: offset, in: document.source), ns.length)
+            textView.reveal(ns.lineRange(for: NSRange(location: utf16, length: 0)))
         } else {
             scrollView.scrollToCharacterOffset(
                 document.rendered.characterOffset(forSourceOffset: offset))
@@ -477,14 +548,14 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
         for bookmark in BookmarkStore.shared.bookmarks(for: url) {
             BookmarkStore.shared.remove(bookmark, for: url)
         }
+        updateBookmarkButton()
     }
 
-    private func snippet(around offset: Int, in source: String) -> String {
-        let ns = source as NSString
-        let utf16Offset = min(max(offset, 0), max(ns.length - 1, 0))
-        guard ns.length > 0 else { return "" }
-        let line = ns.lineRange(for: NSRange(location: utf16Offset, length: 0))
-        return ns.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The symbol the toolbar button shows for the current document.
+    var bookmarkSymbol: String {
+        let count = markdownDocument?.fileURL
+            .map { BookmarkStore.shared.bookmarks(for: $0).count } ?? 0
+        return count > 0 ? "bookmark.fill" : "bookmark"
     }
 
     // MARK: Editing
@@ -544,6 +615,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate,
             return markdownDocument?.rendered.outline.isEmpty == false
         case #selector(findNext(_:)), #selector(findPrevious(_:)):
             return !matches.isEmpty
+        case #selector(shareDocument(_:)):
+            return markdownDocument?.fileURL != nil
         case #selector(addBookmark(_:)):
             return markdownDocument?.fileURL != nil
         case #selector(toggleTaskFilter(_:)), #selector(clearTaskFilter(_:)):
