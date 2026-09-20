@@ -6,7 +6,8 @@
 # XcodeGen rather than committed, because a .pbxproj is unreadable in review.
 
 APP        := Markdown
-CLI_PREFIX := /usr/local/bin
+# Left empty on purpose: install-cli picks the first writable directory.
+CLI_PREFIX ?=
 PROJECT    := BloodySimpleMarkdownViewer.xcodeproj
 SCHEME     := Markdown
 DERIVED    := build
@@ -24,7 +25,7 @@ help:
 	@echo "make run         Build and launch with the example document"
 	@echo "make uninstall   Remove the installed app and deregister it"
 	@echo "make cli         Build the mdv command line tool"
-	@echo "make install-cli Install mdv to /usr/local/bin"
+	@echo "make install-cli Install the mdv tool (override with CLI_PREFIX=...)"
 	@echo "make icon        Rebuild the app icon from Design/icon-source.png"
 	@echo "make clean       Remove build output and the generated project"
 
@@ -91,10 +92,28 @@ cli:
 	swift build -c release --product mdv
 	@echo "Built .build/release/mdv"
 
+# /usr/local/bin needs root on a stock machine, and Homebrew's own bin does
+# not. Preferring whichever is writable means the common case takes no sudo,
+# and the uncommon case says what to do rather than failing on a temp file.
 install-cli: cli
-	@mkdir -p $(CLI_PREFIX)
-	@install -m 0755 .build/release/mdv "$(CLI_PREFIX)/mdv"
-	@echo "Installed $(CLI_PREFIX)/mdv"
+	@PREFIX="$(CLI_PREFIX)"; \
+	if [ -z "$$PREFIX" ]; then \
+		for candidate in /opt/homebrew/bin /usr/local/bin "$$HOME/.local/bin"; do \
+			if [ -w "$$candidate" ]; then PREFIX="$$candidate"; break; fi; \
+		done; \
+	fi; \
+	PREFIX="$${PREFIX:-/usr/local/bin}"; \
+	if [ ! -d "$$PREFIX" ] && ! mkdir -p "$$PREFIX" 2>/dev/null; then \
+		echo "Cannot create $$PREFIX. Try: sudo make install-cli CLI_PREFIX=$$PREFIX"; exit 1; \
+	fi; \
+	if [ ! -w "$$PREFIX" ]; then \
+		echo "$$PREFIX is not writable. Try:"; \
+		echo "  sudo make install-cli CLI_PREFIX=$$PREFIX"; \
+		echo "or pick somewhere on your PATH that is, for example:"; \
+		echo "  make install-cli CLI_PREFIX=\$$HOME/.local/bin"; exit 1; \
+	fi; \
+	install -m 0755 .build/release/mdv "$$PREFIX/mdv"; \
+	echo "Installed $$PREFIX/mdv"
 
 uninstall-cli:
 	@rm -f "$(CLI_PREFIX)/mdv"
