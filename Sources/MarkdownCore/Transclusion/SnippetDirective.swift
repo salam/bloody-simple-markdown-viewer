@@ -64,8 +64,12 @@ public struct SnippetDirective: Equatable, Sendable {
         return SnippetDirective(path: trimmed, heading: nil, indent: indent)
     }
 
-    /// The section of a document under a given heading, down to the next
-    /// heading at the same or a higher level.
+    /// A document's section: the heading itself and everything under it, down
+    /// to the next heading at the same or a higher level.
+    ///
+    /// The heading is included, as Obsidian does it. A transcluded section that
+    /// arrived without its title would lose its place in the outline and read
+    /// as though it belonged to whatever came before.
     public static func section(_ heading: String, in source: String) -> String? {
         let lines = source.components(separatedBy: "\n")
         let wanted = heading.lowercased()
@@ -79,11 +83,11 @@ public struct SnippetDirective: Equatable, Sendable {
             if start == nil {
                 if title == wanted { start = index; level = hashes }
             } else if hashes <= level {
-                return lines[(start! + 1)..<index].joined(separator: "\n")
+                return lines[start!..<index].joined(separator: "\n")
                     .trimmingCharacters(in: .newlines)
             }
         }
         guard let start else { return nil }
-        return lines[(start + 1)...].joined(separator: "\n").trimmingCharacters(in: .newlines)
+        return lines[start...].joined(separator: "\n").trimmingCharacters(in: .newlines)
     }
 }

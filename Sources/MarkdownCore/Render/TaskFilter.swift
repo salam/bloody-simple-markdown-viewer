@@ -64,6 +64,40 @@ public enum TaskFilter {
         return out
     }
 
+    /// One task item, as a caller outside the view layer wants it.
+    public struct Item: Sendable, Equatable {
+        public let state: Checkbox.State
+        /// The item's text, with the checkbox glyph and its tab removed.
+        public let text: String
+        /// UTF-8 byte offset of the item in the source.
+        public let sourceOffset: Int
+    }
+
+    /// Task items in document order.
+    ///
+    /// Read off the rendered document rather than the source, so the spellings
+    /// people actually write — `[OK]`, `[DONE]`, `[~]`, `[✅]` — are already
+    /// resolved to a state and stripped from the text.
+    public static func items(in document: RenderedDocument,
+                             states: Set<Checkbox.State> = Set(Checkbox.State.allCases)) -> [Item] {
+        let attributed = document.attributedString
+        let text = attributed.string as NSString
+        return paragraphs(in: document, states: states).compactMap { paragraph in
+            guard let raw = attributed.attribute(.taskState, at: paragraph.location,
+                                                 effectiveRange: nil) as? String,
+                  let state = Checkbox.State(rawValue: raw),
+                  let offset = attributed.attribute(.sourceOffset, at: paragraph.location,
+                                                    effectiveRange: nil) as? Int
+            else { return nil }
+            // The rendered line opens with the glyph and a tab.
+            let body = text.substring(with: paragraph)
+                .drop { $0 != "\t" }.dropFirst()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty else { return nil }
+            return Item(state: state, text: body, sourceOffset: offset)
+        }
+    }
+
     /// The same filter applied to the Markdown source rather than the render.
     ///
     /// Lines come back verbatim, indentation and marker spelling included,

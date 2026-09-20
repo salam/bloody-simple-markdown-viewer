@@ -6,6 +6,7 @@
 # XcodeGen rather than committed, because a .pbxproj is unreadable in review.
 
 APP        := Markdown
+CLI_PREFIX := /usr/local/bin
 PROJECT    := BloodySimpleMarkdownViewer.xcodeproj
 SCHEME     := Markdown
 DERIVED    := build
@@ -13,7 +14,7 @@ DEBUG_APP  := $(DERIVED)/Build/Products/Debug/$(APP).app
 RELEASE_APP:= $(DERIVED)/Build/Products/Release/$(APP).app
 INSTALL_TO := /Applications/$(APP).app
 
-.PHONY: all test build release install uninstall run clean project reregister icon help
+.PHONY: all test build release install uninstall run clean project reregister icon cli install-cli uninstall-cli help
 
 help:
 	@echo "make test        Run the engine's unit tests (no Xcode needed)"
@@ -22,6 +23,8 @@ help:
 	@echo "make install     Build Release and install to /Applications"
 	@echo "make run         Build and launch with the example document"
 	@echo "make uninstall   Remove the installed app and deregister it"
+	@echo "make cli         Build the mdv command line tool"
+	@echo "make install-cli Install mdv to /usr/local/bin"
 	@echo "make icon        Rebuild the app icon from Design/icon-source.png"
 	@echo "make clean       Remove build output and the generated project"
 
@@ -82,6 +85,20 @@ icon: Design/icon-source.png Tools/makeicon.swift
 		done || echo "zopflipng not installed; icons are uncompressed"
 	@iconutil -c icns $(DERIVED)/Markdown.iconset -o App/Resources/Markdown.icns
 	@echo "Wrote App/Resources/Markdown.icns"
+
+# The command line is a plain SwiftPM executable, so it builds without Xcode.
+cli:
+	swift build -c release --product mdv
+	@echo "Built .build/release/mdv"
+
+install-cli: cli
+	@mkdir -p $(CLI_PREFIX)
+	@install -m 0755 .build/release/mdv "$(CLI_PREFIX)/mdv"
+	@echo "Installed $(CLI_PREFIX)/mdv"
+
+uninstall-cli:
+	@rm -f "$(CLI_PREFIX)/mdv"
+	@echo "Removed $(CLI_PREFIX)/mdv"
 
 uninstall:
 	@/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

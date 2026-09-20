@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:simple-markdown-viewer}",
+            "name": "Debug mdv",
+            "target": "mdv",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mdv"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:simple-markdown-viewer}",
+            "name": "Release mdv",
+            "target": "mdv",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mdv"
+        }
+    ]
+}

@@ -5,7 +5,8 @@ let package = Package(
     name: "MarkdownCore",
     platforms: [.macOS(.v15)],
     products: [
-        .library(name: "MarkdownCore", targets: ["MarkdownCore"])
+        .library(name: "MarkdownCore", targets: ["MarkdownCore"]),
+        .executable(name: "mdv", targets: ["mdv"])
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "main"),
@@ -21,6 +22,11 @@ let package = Package(
                 .product(name: "SwaTexRender", package: "SwaTex"),
                 .product(name: "Mermaid", package: "swift-mermaid")
             ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "mdv",
+            dependencies: ["MarkdownCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

@@ -145,4 +145,38 @@ struct TaskFilterTests {
         #expect(text.contains("\u{25E7}"))
         #expect(text.contains("\u{2610}"))
     }
+
+    // MARK: Items, for callers outside the view
+
+    @Test func listsItemsWithTheirTextAndState() {
+        let items = TaskFilter.items(in: document())
+        #expect(items.count == 7)
+        #expect(items.map(\.text).first == "Parse GFM")
+        // The glyph and its tab are gone; the text is what a script wants.
+        #expect(!items.contains { $0.text.contains("\u{2611}") || $0.text.contains("\t") })
+    }
+
+    /// The odd spellings resolve to a state, which is the point of reading
+    /// these off the render rather than off the source.
+    @Test func itemsNormaliseUnusualMarkers() {
+        let items = TaskFilter.items(in: document())
+        let byText = Dictionary(uniqueKeysWithValues: items.map { ($0.text, $0.state) })
+        #expect(byText["Syntax highlighting"] == .checked)      // [DONE]
+        #expect(byText["Bookmarks polish"] == .inProgress)      // [WIP]
+        #expect(byText["Quick Look extension"] == .unchecked)
+    }
+
+    @Test func itemsCanBeNarrowedToOneState() {
+        #expect(TaskFilter.items(in: document(), states: [.inProgress]).map(\.text)
+            == ["Math and diagrams", "Bookmarks polish"])
+    }
+
+    /// Offsets are what a caller ticks a box with, so they have to land on the
+    /// item's own line.
+    @Test func itemOffsetsLandOnTheirSourceLine() {
+        for item in TaskFilter.items(in: document()) {
+            let line = SourceOffset.line(atByte: item.sourceOffset, in: source)
+            #expect(line.contains(item.text), "offset for “\(item.text)” landed on “\(line)”")
+        }
+    }
 }
