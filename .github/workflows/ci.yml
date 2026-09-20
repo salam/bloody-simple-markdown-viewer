@@ -17,7 +17,7 @@ jobs:
     name: Engine tests
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Show toolchain
         run: swift --version
       - name: Build
@@ -33,7 +33,7 @@ jobs:
     name: App and extension
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
