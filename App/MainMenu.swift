@@ -33,8 +33,10 @@ enum MainMenu {
 
     private static func applicationMenu() -> NSMenuItem {
         submenu("Markdown") { menu in
+            // Not NSApplication.orderFrontStandardAboutPanel, which takes no
+            // options and so cannot carry a link.
             add(menu, "About A Bloody Simple Markdown Viewer",
-                #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+                #selector(AppCommands.showAbout(_:)))
             menu.addItem(.separator())
             add(menu, "Make Default Markdown App",
                 #selector(AppCommands.makeDefaultMarkdownApp(_:)))
@@ -169,5 +171,6 @@ enum MainMenu {
     func clearTaskFilter(_ sender: Any?)
     func makeDefaultMarkdownApp(_ sender: Any?)
     func showSyntaxGuide(_ sender: Any?)
+    func showAbout(_ sender: Any?)
     func openProjectPage(_ sender: Any?)
 }

@@ -35,6 +35,10 @@ extension AppDelegate {
         DefaultHandler.makeDefault()
     }
 
+    @IBAction func showAbout(_ sender: Any?) {
+        AboutPanel.show()
+    }
+
     @IBAction func openProjectPage(_ sender: Any?) {
         guard let url = URL(string: "https://github.com/salam/bloody-simple-markdown-viewer") else { return }
         NSWorkspace.shared.open(url)
